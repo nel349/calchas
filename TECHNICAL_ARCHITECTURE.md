@@ -138,58 +138,15 @@ Market Update (WS) → Platform Layer → Broadcast Channel
 
 **Purpose:** Represents a prediction market event
 
-```rust
-/// Unique identifier for a market
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct MarketId(String);
-
-/// A prediction market (e.g., "NFL: Chiefs to score next")
-#[derive(Debug, Clone)]
-struct Market {
-    id: MarketId,
-    ticker: String,              // e.g., "INXDKNFL-24FEB11-T2.5"
-    title: String,               // Human-readable description
-    category: MarketCategory,    // Sports, Politics, Crypto, etc.
-    sub_category: Option<String>, // e.g., "american_football"
-
-    // Market state
-    status: MarketStatus,        // Open, Closed, Settled
-
-    // Current pricing
-    yes_price: Decimal,          // Current YES price (0-100 cents)
-    no_price: Decimal,           // Current NO price (0-100 cents)
-
-    // Liquidity
-    volume_usd: Decimal,         // Total $ traded
-    open_interest: u64,          // Contracts outstanding
-
-    // Timing
-    event_time: Option<DateTime<Utc>>,  // When event occurs
-    close_time: DateTime<Utc>,          // Market closes
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MarketCategory {
-    Sports,
-    Politics,
-    Economics,
-    Crypto,
-    Entertainment,
-    Weather,
-    Other,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MarketStatus {
-    PreLaunch,      // Not yet tradable
-    Open,           // Currently tradable
-    Closed,         // Event occurred, awaiting settlement
-    Settled,        // Payouts distributed
-    Finalized,      // Permanently closed
-}
-```
+**Key Fields:**
+- **MarketId**: Unique identifier (newtype pattern)
+- **Ticker**: Exchange symbol (e.g., "INXDKNFL-24FEB11-T2.5")
+- **Title**: Human-readable description
+- **Category & Sub-category**: Market classification (Sports, Politics, etc.)
+- **Status**: Current state (PreLaunch, Open, Closed, Settled, Finalized)
+- **Pricing**: Yes/No prices (0-100 cents, using Decimal type)
+- **Liquidity**: Volume traded, open interest
+- **Timing**: Event time, close time, creation/update timestamps
 
 **Design Decisions:**
 - **MarketId newtype:** Prevents accidentally using ticker string as ID
@@ -202,84 +159,18 @@ enum MarketStatus {
 
 **Purpose:** Defines entry/exit rules for a trading strategy
 
-```rust
-/// Unique identifier for a strategy
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct StrategyId(String);
+**Key Components:**
+- **StrategyId**: Unique identifier (newtype pattern)
+- **Metadata**: Name, description, version, enabled flag
+- **Filters**: Market selection criteria (categories, platforms, price ranges, liquidity, timing)
+- **Entry Rules**: Position entry logic (side selection, position size, order type)
+- **Exit Rules**: Position exit criteria (take profit, stop loss, trailing stop, time-based)
+- **Risk Limits**: Risk management constraints (max positions, daily loss limits, cooldown periods)
 
-/// A trading strategy loaded from JSON
-#[derive(Debug, Clone, Deserialize)]
-struct Strategy {
-    #[serde(skip)]  // Generated from filename
-    id: StrategyId,
-
-    name: String,
-    description: String,
-    version: String,
-    enabled: bool,  // Can be toggled without deleting file
-
-    // Market filtering
-    filters: StrategyFilters,
-
-    // Position entry rules
-    entry: EntryRules,
-
-    // Position exit rules
-    exit: ExitRules,
-
-    // Risk management
-    risk: RiskLimits,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct StrategyFilters {
-    categories: Vec<MarketCategory>,
-    platforms: Vec<Platform>,
-
-    // Price constraints
-    min_favorite_price: Option<Decimal>,  // Only if favorite >= this
-    max_underdog_price: Option<Decimal>,  // Only if underdog <= this
-
-    // Liquidity constraints
-    min_liquidity_usd: Decimal,
-    min_open_interest: Option<u64>,
-
-    // Timing constraints
-    game_status: Vec<GameStatus>,  // PreGame, Live, etc.
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct EntryRules {
-    side: EntrySide,           // Underdog, Favorite, Both
-    amount_usd: Decimal,       // Size per position
-    order_type: OrderType,     // Market, Limit
-
-    // For limit orders
-    limit_price_offset: Option<Decimal>,  // +/- cents from current
-}
-
-#[derive(Debug, Clone, Deserialize)]
-enum EntrySide {
-    UnderdogOnly,   // Buy cheap side only
-    FavoriteOnly,   // Buy expensive side only
-    Both,           // Volatility hedge strategy
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ExitRules {
-    take_profit_pct: Decimal,      // Exit at +X% gain
-    stop_loss_pct: Decimal,         // Exit at -X% loss
-    trailing_stop_pct: Option<Decimal>,  // Trail by X% from peak
-    max_hold_minutes: Option<u64>,  // Force exit after duration
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct RiskLimits {
-    max_concurrent_positions: usize,     // Max open positions
-    max_daily_loss_usd: Decimal,         // Stop trading if hit
-    cooldown_after_loss_minutes: u64,    // Wait after loss before next trade
-}
-```
+**Entry Side Options:**
+- **UnderdogOnly**: Buy cheap side only
+- **FavoriteOnly**: Buy expensive side only
+- **Both**: Volatility hedge strategy
 
 **Design Decisions:**
 - **Deserialize from JSON:** Strategies are config, not code
@@ -293,53 +184,19 @@ struct RiskLimits {
 
 **Purpose:** Tracks an open trading position
 
-```rust
-/// Unique identifier for a position
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct PositionId(Uuid);
+**Key Fields:**
+- **PositionId**: Unique identifier (UUID-based newtype)
+- **References**: MarketId, StrategyId linkage
+- **Entry Details**: Side (Yes/No), entry price, quantity, entry timestamp
+- **Current State**: Current price, unrealized P&L, peak P&L (for trailing stops)
+- **Exit Tracking**: Exit target criteria, exit order ID (if placed)
+- **Status**: Active, ExitPending, Closed, or Error state
 
-/// An open position (bet on a market)
-#[derive(Debug, Clone)]
-struct Position {
-    id: PositionId,
-    market_id: MarketId,
-    strategy_id: StrategyId,
-
-    // Entry details
-    side: OrderSide,           // Yes or No
-    entry_price: Decimal,      // Price we entered at
-    quantity: u64,             // Number of contracts
-    entry_time: DateTime<Utc>,
-
-    // Current state
-    current_price: Decimal,    // Latest market price
-    unrealized_pnl: Decimal,   // Current profit/loss
-    peak_pnl: Decimal,         // Highest PnL reached (for trailing stop)
-
-    // Exit tracking
-    exit_target: ExitTarget,   // When to exit
-    exit_order_id: Option<OrderId>,  // If exit order placed
-
-    // Risk state
-    status: PositionStatus,
-}
-
-#[derive(Debug, Clone)]
-enum PositionStatus {
-    Active,           // Position open, monitoring
-    ExitPending,      // Exit order submitted, awaiting fill
-    Closed,           // Position exited
-    Error(String),    // Something went wrong (e.g., API down)
-}
-
-#[derive(Debug, Clone)]
-struct ExitTarget {
-    take_profit_price: Decimal,
-    stop_loss_price: Decimal,
-    trailing_stop_distance: Option<Decimal>,
-    expiry_time: Option<DateTime<Utc>>,
-}
-```
+**Exit Target Components:**
+- Take profit price threshold
+- Stop loss price threshold
+- Trailing stop distance (optional)
+- Expiry time (optional)
 
 **Design Decisions:**
 - **PositionId = Uuid:** Globally unique, can't collide
@@ -353,65 +210,18 @@ struct ExitTarget {
 
 **Purpose:** Represents a Kalshi order (buy or sell)
 
-```rust
-/// Unique identifier for an order (from Kalshi)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct OrderId(String);
+**Key Fields:**
+- **OrderId**: Unique identifier from Kalshi (newtype wrapping String)
+- **References**: MarketId, optional PositionId (None for entry orders)
+- **Order Details**: Side (Yes/No), Action (Buy/Sell), OrderType (Market/Limit)
+- **Pricing**: Limit price, quantity
+- **State**: Status, filled quantity, average fill price
+- **Timestamps**: Created at, updated at
 
-/// An order to buy/sell contracts
-#[derive(Debug, Clone)]
-struct Order {
-    id: OrderId,
-    market_id: MarketId,
-    position_id: Option<PositionId>,  // None for entry orders (position not created yet)
-
-    // Order details
-    side: OrderSide,       // Yes or No
-    action: OrderAction,   // Buy or Sell
-    order_type: OrderType,
-
-    // Pricing
-    price: Decimal,        // Limit price (or market)
-    quantity: u64,         // Contracts to buy/sell
-
-    // State
-    status: OrderStatus,
-    filled_quantity: u64,
-    average_fill_price: Option<Decimal>,
-
-    // Timing
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OrderSide {
-    Yes,  // Buy YES contracts (think event will happen)
-    No,   // Buy NO contracts (think event won't happen)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OrderAction {
-    Buy,   // Open position
-    Sell,  // Close position
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OrderType {
-    Market,  // Execute immediately at current price
-    Limit,   // Execute only at specified price or better
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OrderStatus {
-    Pending,      // Order submitted, not yet on book
-    Resting,      // Limit order on book, not filled
-    PartialFill,  // Some contracts filled
-    Filled,       // All contracts filled
-    Cancelled,    // Order cancelled
-    Rejected,     // Order rejected by exchange
-}
-```
+**Order Side:** Yes (event will happen) or No (event won't happen)
+**Order Action:** Buy (open position) or Sell (close position)
+**Order Type:** Market (immediate execution) or Limit (price-based execution)
+**Order Status:** Pending, Resting, PartialFill, Filled, Cancelled, Rejected
 
 **Design Decisions:**
 - **OrderId from Kalshi:** We don't generate these, exchange does
@@ -424,54 +234,20 @@ enum OrderStatus {
 
 **Purpose:** Immutable record of a completed trade (for analytics)
 
-```rust
-/// Unique identifier for a trade record
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct TradeId(Uuid);
+**Key Fields:**
+- **TradeId**: Unique identifier (UUID-based newtype)
+- **References**: PositionId, MarketId, StrategyId
+- **Entry Details**: Order ID, price, quantity, timestamp
+- **Exit Details**: Order ID, price, quantity, timestamp, reason
+- **Performance Metrics**: Gross P&L, fees, net P&L, return percentage, hold duration
+- **Metadata**: Optional notes field
 
-/// A completed trade (entry + exit)
-#[derive(Debug, Clone)]
-struct Trade {
-    id: TradeId,
-    position_id: PositionId,
-    market_id: MarketId,
-    strategy_id: StrategyId,
-
-    // Entry
-    entry_order_id: OrderId,
-    entry_price: Decimal,
-    entry_quantity: u64,
-    entry_time: DateTime<Utc>,
-
-    // Exit
-    exit_order_id: OrderId,
-    exit_price: Decimal,
-    exit_quantity: u64,
-    exit_time: DateTime<Utc>,
-    exit_reason: ExitReason,
-
-    // Performance
-    gross_pnl: Decimal,        // Exit price - Entry price
-    fees: Decimal,             // Kalshi fees
-    net_pnl: Decimal,          // Gross - Fees
-    return_pct: Decimal,       // (Net PnL / Entry Cost) * 100
-    hold_duration: Duration,   // Time held
-
-    // Metadata
-    notes: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ExitReason {
-    TakeProfit,
-    StopLoss,
-    TrailingStop,
-    MaxHoldTime,
-    ManualExit,       // User intervention
-    StrategyDisabled, // Strategy was turned off
-    MarketClosed,     // Event occurred
-}
-```
+**Exit Reasons:**
+- TakeProfit, StopLoss, TrailingStop
+- MaxHoldTime (time-based exit)
+- ManualExit (user intervention)
+- StrategyDisabled (strategy turned off)
+- MarketClosed (event occurred)
 
 **Design Decisions:**
 - **Separate from Position:** Position is mutable, Trade is immutable history
@@ -623,35 +399,16 @@ main.rs
 
 #### 6.1.1 KalshiClient (REST API)
 
-```rust
-pub struct KalshiClient {
-    http_client: reqwest::Client,
-    base_url: String,
-    auth_token: RwLock<Option<String>>,  // Cached auth token
-}
+**Key Components:**
+- HTTP client (reqwest)
+- Base URL configuration
+- Cached auth token (RwLock for thread-safe access)
 
-impl KalshiClient {
-    /// Create new client
-    pub async fn new(email: &str, password: &str, use_demo: bool) -> Result<Self>;
-
-    /// Authentication
-    pub async fn login(&self) -> Result<String>;
-    pub async fn logout(&self) -> Result<()>;
-
-    /// Market data
-    pub async fn get_markets(&self, filters: MarketFilters) -> Result<Vec<Market>>;
-    pub async fn get_market(&self, market_id: &MarketId) -> Result<Market>;
-
-    /// Trading
-    pub async fn place_order(&self, order: NewOrder) -> Result<Order>;
-    pub async fn cancel_order(&self, order_id: &OrderId) -> Result<()>;
-    pub async fn get_order(&self, order_id: &OrderId) -> Result<Order>;
-
-    /// Portfolio
-    pub async fn get_positions(&self) -> Result<Vec<Position>>;
-    pub async fn get_balance(&self) -> Result<Balance>;
-}
-```
+**Core Methods:**
+- **Authentication**: login, logout
+- **Market Data**: get_markets (with filters), get_market (by ID)
+- **Trading**: place_order, cancel_order, get_order
+- **Portfolio**: get_positions, get_balance
 
 **Design Decisions:**
 - **RwLock for token:** Multiple read-only requests can proceed, write locks when refreshing
@@ -660,34 +417,20 @@ impl KalshiClient {
 
 #### 6.1.2 KalshiWebSocket
 
-```rust
-pub struct KalshiWebSocket {
-    ws_stream: WebSocketStream<...>,
-    subscriptions: HashSet<MarketId>,
-}
+**Key Components:**
+- WebSocket stream (tokio-tungstenite)
+- Subscription tracking (HashSet of MarketIds)
 
-impl KalshiWebSocket {
-    /// Connect to WebSocket
-    pub async fn connect(auth_token: &str) -> Result<Self>;
+**Core Methods:**
+- **connect**: Establish WebSocket connection with auth token
+- **subscribe**: Subscribe to market price updates
+- **unsubscribe**: Unsubscribe from markets
+- **next_update**: Receive next price update (blocking async)
 
-    /// Subscribe to market updates
-    pub async fn subscribe(&mut self, market_ids: &[MarketId]) -> Result<()>;
-
-    /// Unsubscribe from markets
-    pub async fn unsubscribe(&mut self, market_ids: &[MarketId]) -> Result<()>;
-
-    /// Receive next price update (blocking)
-    pub async fn next_update(&mut self) -> Result<PriceUpdate>;
-}
-
-#[derive(Debug, Clone)]
-pub struct PriceUpdate {
-    pub market_id: MarketId,
-    pub yes_price: Decimal,
-    pub no_price: Decimal,
-    pub timestamp: DateTime<Utc>,
-}
-```
+**PriceUpdate Structure:**
+- Market ID
+- Yes price, No price (Decimal)
+- Timestamp
 
 **Design Decisions:**
 - **Stream-based:** WebSocket is naturally a stream of updates
@@ -700,36 +443,20 @@ pub struct PriceUpdate {
 
 **Responsibility:** Evaluate markets against strategy rules, decide entries
 
-```rust
-pub struct StrategyEngine {
-    strategies: Arc<RwLock<HashMap<StrategyId, Strategy>>>,
-}
+**Key Components:**
+- Strategy storage (Arc<RwLock<HashMap>> for concurrent read access)
+- Strategy evaluator
 
-impl StrategyEngine {
-    /// Create engine with loaded strategies
-    pub fn new(strategies: Vec<Strategy>) -> Self;
+**Core Methods:**
+- **new**: Create engine with loaded strategies
+- **reload_strategies**: Hot reload from disk without restart
+- **evaluate**: Evaluate market against all active strategies, returns entry signals
+- **matches_filters**: Check if strategy matches market criteria
 
-    /// Reload strategies from disk (hot reload)
-    pub async fn reload_strategies(&self, path: &Path) -> Result<()>;
-
-    /// Evaluate a market against all active strategies
-    /// Returns matching strategies and their entry signals
-    pub fn evaluate(&self, market: &Market) -> Vec<EntrySignal>;
-
-    /// Check if a specific strategy matches this market
-    fn matches_filters(strategy: &Strategy, market: &Market) -> bool;
-}
-
-#[derive(Debug, Clone)]
-pub struct EntrySignal {
-    pub strategy_id: StrategyId,
-    pub market_id: MarketId,
-    pub side: OrderSide,
-    pub amount_usd: Decimal,
-    pub order_type: OrderType,
-    pub reasoning: String,  // For logging why we entered
-}
-```
+**Entry Signal Structure:**
+- Strategy ID, Market ID
+- Order side, amount USD, order type
+- Reasoning (for audit logging)
 
 **Design Decisions:**
 - **Shared strategies:** Multiple tasks can read strategies concurrently (RwLock)
@@ -742,44 +469,17 @@ pub struct EntrySignal {
 
 **Responsibility:** Track open positions, monitor for exit conditions
 
-```rust
-pub struct PositionManager {
-    positions: Arc<RwLock<HashMap<PositionId, Position>>>,
-    db: Arc<SqliteDatabase>,
-    order_executor: Arc<OrderExecutor>,
-}
+**Key Components:**
+- Position storage (Arc<RwLock<HashMap>> for concurrent access)
+- Database interface (SQLite)
+- Order executor reference
 
-impl PositionManager {
-    /// Create new position from filled entry order
-    pub async fn open_position(
-        &self,
-        order: &Order,
-        strategy_id: StrategyId,
-        exit_rules: ExitRules,
-    ) -> Result<PositionId>;
-
-    /// Update position with new market price
-    pub async fn update_price(
-        &self,
-        position_id: &PositionId,
-        new_price: Decimal,
-    ) -> Result<()>;
-
-    /// Check if any positions should exit
-    /// Returns positions that triggered exit
-    pub async fn check_exits(&self) -> Result<Vec<PositionId>>;
-
-    /// Close a position (place exit order)
-    pub async fn close_position(
-        &self,
-        position_id: &PositionId,
-        reason: ExitReason,
-    ) -> Result<OrderId>;
-
-    /// Get all active positions
-    pub async fn get_active_positions(&self) -> Vec<Position>;
-}
-```
+**Core Methods:**
+- **open_position**: Create position from filled entry order
+- **update_price**: Update position with new market price
+- **check_exits**: Scan positions for exit triggers, returns position IDs to exit
+- **close_position**: Place exit order for position
+- **get_active_positions**: Retrieve all open positions
 
 **Design Decisions:**
 - **Shared state:** Positions are shared across tasks (need RwLock)
@@ -793,37 +493,15 @@ impl PositionManager {
 
 **Responsibility:** Place orders, track fills, handle retries
 
-```rust
-pub struct OrderExecutor {
-    kalshi: Arc<KalshiClient>,
-    db: Arc<SqliteDatabase>,
-}
+**Key Components:**
+- Kalshi client reference
+- Database interface for audit logging
 
-impl OrderExecutor {
-    /// Submit an entry order (open position)
-    pub async fn execute_entry(
-        &self,
-        signal: &EntrySignal,
-    ) -> Result<OrderId>;
-
-    /// Submit an exit order (close position)
-    pub async fn execute_exit(
-        &self,
-        position: &Position,
-        reason: ExitReason,
-    ) -> Result<OrderId>;
-
-    /// Poll order status until filled or cancelled
-    pub async fn wait_for_fill(
-        &self,
-        order_id: &OrderId,
-        timeout: Duration,
-    ) -> Result<Order>;
-
-    /// Cancel an order
-    pub async fn cancel_order(&self, order_id: &OrderId) -> Result<()>;
-}
-```
+**Core Methods:**
+- **execute_entry**: Submit entry order to open position
+- **execute_exit**: Submit exit order to close position
+- **wait_for_fill**: Poll order status until filled or cancelled (with timeout)
+- **cancel_order**: Cancel pending order
 
 **Design Decisions:**
 - **Retry logic:** Network failures shouldn't kill orders (exponential backoff)
@@ -836,49 +514,24 @@ impl OrderExecutor {
 
 **Responsibility:** Enforce risk limits, prevent over-trading
 
-```rust
-pub struct RiskManager {
-    daily_stats: Arc<RwLock<DailyStats>>,
-    db: Arc<SqliteDatabase>,
-}
+**Key Components:**
+- Daily stats tracking (Arc<RwLock> for shared access)
+- Database interface for persistence
 
-impl RiskManager {
-    /// Check if a new position would violate risk limits
-    pub async fn check_new_position(
-        &self,
-        strategy: &Strategy,
-        amount_usd: Decimal,
-    ) -> Result<RiskDecision>;
+**Core Methods:**
+- **check_new_position**: Validate if new position would violate risk limits
+- **record_trade**: Update daily stats after trade completion
+- **reset_daily_stats**: Reset counters at midnight
 
-    /// Record a trade (updates daily stats)
-    pub async fn record_trade(&self, trade: &Trade) -> Result<()>;
+**Risk Decision Types:**
+- Approved
+- Rejected (with specific reason: max positions, daily loss limit, cooldown period, insufficient balance)
 
-    /// Reset daily stats (called at midnight)
-    pub async fn reset_daily_stats(&self) -> Result<()>;
-}
-
-#[derive(Debug)]
-pub enum RiskDecision {
-    Approved,
-    Rejected(RejectionReason),
-}
-
-#[derive(Debug)]
-pub enum RejectionReason {
-    MaxConcurrentPositions,
-    DailyLossLimitReached,
-    InCooldownPeriod,
-    InsufficientBalance,
-}
-
-#[derive(Debug, Default)]
-struct DailyStats {
-    trades_today: u32,
-    net_pnl_today: Decimal,
-    active_positions: usize,
-    last_loss_time: Option<DateTime<Utc>>,
-}
-```
+**Daily Stats Tracked:**
+- Trades count today
+- Net P&L today
+- Active positions count
+- Last loss timestamp (for cooldown)
 
 **Design Decisions:**
 - **Explicit risk checks:** Every position request goes through risk manager
@@ -891,83 +544,38 @@ struct DailyStats {
 
 ### 7.1 Task Architecture
 
-**Calchas runs as a multi-task async daemon:**
+**Calchas runs as a multi-task async daemon**
 
-```rust
-#[tokio::main]
-async fn main() -> Result<()> {
-    // 1. Load configuration
-    let config = Config::load("config/default.toml")?;
+**Main Function Flow:**
+1. Load configuration from TOML file
+2. Initialize shared state (Kalshi client, strategies, positions, database)
+3. Create communication channels (broadcast for prices, mpsc for signals/commands)
+4. Spawn concurrent tasks (WebSocket, Strategy, Position, Executor, Web)
+5. Wait for shutdown signal (Ctrl+C)
+6. Graceful shutdown of all tasks
 
-    // 2. Initialize shared state
-    let kalshi = Arc::new(KalshiClient::new(...).await?);
-    let strategies = Arc::new(RwLock::new(load_strategies("strategies/")?));
-    let positions = Arc::new(RwLock::new(HashMap::new()));
-    let db = Arc::new(SqliteDatabase::connect(...)?);
+**Shared State:**
+- KalshiClient (Arc-wrapped)
+- Strategies (Arc<RwLock<HashMap>>)
+- Positions (Arc<RwLock<HashMap>>)
+- Database connection (Arc-wrapped)
 
-    // 3. Create channels
-    let (price_tx, price_rx) = broadcast::channel(1000);  // Price updates
-    let (signal_tx, signal_rx) = mpsc::channel(100);      // Entry signals
-    let (exit_tx, exit_rx) = mpsc::channel(100);          // Exit commands
-
-    // 4. Spawn tasks
-    let ws_task = tokio::spawn(websocket_task(kalshi.clone(), price_tx));
-    let strategy_task = tokio::spawn(strategy_evaluation_task(
-        price_rx.resubscribe(),
-        strategies.clone(),
-        signal_tx,
-    ));
-    let position_task = tokio::spawn(position_monitoring_task(
-        price_rx.resubscribe(),
-        positions.clone(),
-        exit_tx,
-    ));
-    let executor_task = tokio::spawn(order_execution_task(
-        signal_rx,
-        exit_rx,
-        kalshi.clone(),
-        positions.clone(),
-    ));
-    let web_task = tokio::spawn(web_server_task(...));
-
-    // 5. Wait for shutdown signal (Ctrl+C)
-    tokio::signal::ctrl_c().await?;
-
-    // 6. Graceful shutdown
-    shutdown_all_tasks(vec![ws_task, strategy_task, position_task, executor_task, web_task]).await?;
-
-    Ok(())
-}
-```
+**Communication Channels:**
+- Price updates (broadcast channel, 1000 buffer)
+- Entry signals (mpsc channel, 100 buffer)
+- Exit commands (mpsc channel, 100 buffer)
 
 ### 7.2 Task Breakdown
 
 #### Task 1: WebSocket Listener
 **Responsibility:** Receive price updates from Kalshi, broadcast to other tasks
 
-```rust
-async fn websocket_task(
-    kalshi: Arc<KalshiClient>,
-    price_tx: broadcast::Sender<PriceUpdate>,
-) -> Result<()> {
-    let mut ws = KalshiWebSocket::connect(...).await?;
-
-    loop {
-        match ws.next_update().await {
-            Ok(update) => {
-                // Broadcast to all subscribers
-                let _ = price_tx.send(update);
-            }
-            Err(e) => {
-                error!("WebSocket error: {}", e);
-                // Reconnect logic
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                ws = KalshiWebSocket::connect(...).await?;
-            }
-        }
-    }
-}
-```
+**Logic Flow:**
+1. Connect to Kalshi WebSocket
+2. Loop: receive price updates
+3. Broadcast updates to all subscribers via channel
+4. On error: log, wait 5 seconds, reconnect
+5. Continue until shutdown signal
 
 **Key Points:**
 - **Broadcast channel:** Multiple tasks can receive same price update
@@ -977,34 +585,14 @@ async fn websocket_task(
 #### Task 2: Strategy Evaluator
 **Responsibility:** Evaluate price updates, generate entry signals
 
-```rust
-async fn strategy_evaluation_task(
-    mut price_rx: broadcast::Receiver<PriceUpdate>,
-    strategies: Arc<RwLock<HashMap<StrategyId, Strategy>>>,
-    signal_tx: mpsc::Sender<EntrySignal>,
-) -> Result<()> {
-    while let Ok(update) = price_rx.recv().await {
-        // Get current market data
-        let market = fetch_market_details(&update.market_id).await?;
-
-        // Evaluate against all strategies
-        let strategies = strategies.read().await;
-        for strategy in strategies.values() {
-            if matches_strategy(strategy, &market) {
-                let signal = EntrySignal {
-                    strategy_id: strategy.id.clone(),
-                    market_id: market.id.clone(),
-                    // ... signal details
-                };
-
-                signal_tx.send(signal).await?;
-            }
-        }
-    }
-
-    Ok(())
-}
-```
+**Logic Flow:**
+1. Receive price update from broadcast channel
+2. Fetch full market details for that market
+3. Acquire read lock on strategies
+4. For each active strategy, check if market matches filters
+5. If match, create EntrySignal with strategy criteria
+6. Send signal to executor via mpsc channel
+7. Release lock, repeat
 
 **Key Points:**
 - **Read-only access to strategies:** Uses RwLock::read() (non-blocking)
@@ -1014,51 +602,16 @@ async fn strategy_evaluation_task(
 #### Task 3: Position Monitor
 **Responsibility:** Check open positions, trigger exits
 
-```rust
-async fn position_monitoring_task(
-    mut price_rx: broadcast::Receiver<PriceUpdate>,
-    positions: Arc<RwLock<HashMap<PositionId, Position>>>,
-    exit_tx: mpsc::Sender<ExitCommand>,
-) -> Result<()> {
-    // Also check on interval (in case no price updates)
-    let mut interval = tokio::time::interval(Duration::from_secs(10));
-
-    loop {
-        tokio::select! {
-            // New price update
-            Ok(update) = price_rx.recv() => {
-                check_exits_for_market(&update.market_id, &positions, &exit_tx).await?;
-            }
-
-            // Periodic check (every 10s)
-            _ = interval.tick() => {
-                check_all_exits(&positions, &exit_tx).await?;
-            }
-        }
-    }
-}
-
-async fn check_exits_for_market(
-    market_id: &MarketId,
-    positions: &Arc<RwLock<HashMap<PositionId, Position>>>,
-    exit_tx: &mpsc::Sender<ExitCommand>,
-) -> Result<()> {
-    let positions = positions.read().await;
-
-    for position in positions.values() {
-        if position.market_id == *market_id {
-            if let Some(reason) = should_exit(position) {
-                exit_tx.send(ExitCommand {
-                    position_id: position.id.clone(),
-                    reason,
-                }).await?;
-            }
-        }
-    }
-
-    Ok(())
-}
-```
+**Logic Flow:**
+1. Use tokio::select! to handle two triggers:
+   - **Price Update**: Check positions for that specific market
+   - **Periodic Timer**: Check all positions every 10 seconds
+2. For each check:
+   - Acquire read lock on positions
+   - Filter positions by market (if price update) or check all
+   - Evaluate exit conditions (take profit, stop loss, trailing stop, max hold time)
+   - If exit triggered, send ExitCommand to executor
+   - Release lock
 
 **Key Points:**
 - **Dual triggers:** Price updates OR periodic timer (don't miss exits)
@@ -1068,51 +621,23 @@ async fn check_exits_for_market(
 #### Task 4: Order Executor
 **Responsibility:** Execute entry/exit orders
 
-```rust
-async fn order_execution_task(
-    mut signal_rx: mpsc::Receiver<EntrySignal>,
-    mut exit_rx: mpsc::Receiver<ExitCommand>,
-    kalshi: Arc<KalshiClient>,
-    positions: Arc<RwLock<HashMap<PositionId, Position>>>,
-) -> Result<()> {
-    loop {
-        tokio::select! {
-            // New entry signal
-            Some(signal) = signal_rx.recv() => {
-                // Check risk limits
-                if risk_manager.approve(&signal).await? {
-                    // Place order
-                    let order = kalshi.place_order(...).await?;
-
-                    // Wait for fill
-                    let filled_order = wait_for_fill(&order.id).await?;
-
-                    // Create position
-                    let mut positions = positions.write().await;
-                    let position = Position::from_order(filled_order);
-                    positions.insert(position.id.clone(), position);
-                }
-            }
-
-            // Exit command
-            Some(exit_cmd) = exit_rx.recv() => {
-                let positions = positions.read().await;
-                if let Some(position) = positions.get(&exit_cmd.position_id) {
-                    // Place exit order
-                    let order = kalshi.place_order(...).await?;
-
-                    // Update position status
-                    drop(positions);  // Release read lock
-                    let mut positions = positions.write().await;
-                    positions.get_mut(&exit_cmd.position_id)
-                        .unwrap()
-                        .status = PositionStatus::ExitPending;
-                }
-            }
-        }
-    }
-}
-```
+**Logic Flow:**
+1. Use tokio::select! to handle two channels:
+   - **Entry Signal**: New position to open
+   - **Exit Command**: Position to close
+2. For entry signal:
+   - Check risk limits with RiskManager
+   - If approved, place order via KalshiClient
+   - Poll order status until filled (wait_for_fill)
+   - Acquire write lock on positions
+   - Create Position from filled order, insert into HashMap
+   - Release lock
+3. For exit command:
+   - Acquire read lock to get position details
+   - Place exit order via KalshiClient
+   - Release read lock, acquire write lock
+   - Update position status to ExitPending
+   - Release lock
 
 **Key Points:**
 - **Single executor:** Only one task places orders (no race conditions)
@@ -1230,143 +755,59 @@ async fn order_execution_task(
 
 ### 9.1 Error Type Hierarchy
 
-```rust
-/// Top-level application error
-#[derive(Debug, thiserror::Error)]
-pub enum CalchasError {
-    #[error("Kalshi API error: {0}")]
-    Kalshi(#[from] KalshiError),
+**CalchasError (Top-level):**
+- Kalshi API errors
+- Strategy errors
+- Database errors
+- Configuration errors
+- Position not found
+- Order failed
 
-    #[error("Strategy error: {0}")]
-    Strategy(#[from] StrategyError),
+**KalshiError (Platform-specific):**
+- AuthFailed
+- RateLimited(seconds)
+- MarketNotFound(id)
+- Network(reqwest::Error)
+- WebSocketDisconnected
 
-    #[error("Database error: {0}")]
-    Database(#[from] SqliteError),
+**StrategyError:**
+- InvalidJson (serde_json::Error)
+- ValidationFailed(reason)
+- NotFound(strategy_id)
 
-    #[error("Configuration error: {0}")]
-    Config(String),
-
-    #[error("Position not found: {0}")]
-    PositionNotFound(PositionId),
-
-    #[error("Order failed: {0}")]
-    OrderFailed(String),
-}
-
-/// Kalshi-specific errors
-#[derive(Debug, thiserror::Error)]
-pub enum KalshiError {
-    #[error("Authentication failed")]
-    AuthFailed,
-
-    #[error("Rate limited, retry after {0}s")]
-    RateLimited(u64),
-
-    #[error("Market not found: {0}")]
-    MarketNotFound(String),
-
-    #[error("Network error: {0}")]
-    Network(#[from] reqwest::Error),
-
-    #[error("WebSocket disconnected")]
-    WebSocketDisconnected,
-}
-
-/// Strategy-related errors
-#[derive(Debug, thiserror::Error)]
-pub enum StrategyError {
-    #[error("Invalid strategy file: {0}")]
-    InvalidJson(#[from] serde_json::Error),
-
-    #[error("Strategy validation failed: {0}")]
-    ValidationFailed(String),
-
-    #[error("Strategy not found: {0}")]
-    NotFound(String),
-}
-```
+**Error Handling Approach:** Use thiserror crate for ergonomic error types with automatic From conversions
 
 ### 9.2 Error Handling Patterns
 
 #### Pattern 1: Retry with Backoff (Network Errors)
 
-```rust
-async fn fetch_market_with_retry(
-    client: &KalshiClient,
-    market_id: &MarketId,
-) -> Result<Market> {
-    let mut retries = 0;
-    let max_retries = 3;
+**Logic:**
+- Try operation
+- On RateLimited error: sleep for specified seconds, retry
+- On Network error: exponential backoff (2^retries seconds), max 3 retries
+- On other errors: propagate immediately
 
-    loop {
-        match client.get_market(market_id).await {
-            Ok(market) => return Ok(market),
-            Err(KalshiError::RateLimited(seconds)) => {
-                tokio::time::sleep(Duration::from_secs(seconds)).await;
-                retries += 1;
-            }
-            Err(KalshiError::Network(e)) if retries < max_retries => {
-                let backoff = Duration::from_secs(2u64.pow(retries));
-                warn!("Network error, retrying in {:?}: {}", backoff, e);
-                tokio::time::sleep(backoff).await;
-                retries += 1;
-            }
-            Err(e) => return Err(e.into()),
-        }
-    }
-}
-```
+**Use case:** API calls that may fail transiently
 
 #### Pattern 2: Graceful Degradation (WebSocket Disconnect)
 
-```rust
-async fn websocket_task_with_reconnect(
-    kalshi: Arc<KalshiClient>,
-    price_tx: broadcast::Sender<PriceUpdate>,
-) -> Result<()> {
-    loop {
-        match run_websocket_loop(&kalshi, &price_tx).await {
-            Ok(_) => {
-                // WebSocket closed cleanly (shutdown)
-                break;
-            }
-            Err(KalshiError::WebSocketDisconnected) => {
-                error!("WebSocket disconnected, reconnecting in 5s...");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                // Loop continues, reconnects
-            }
-            Err(e) => {
-                error!("Fatal WebSocket error: {}", e);
-                return Err(e.into());
-            }
-        }
-    }
+**Logic:**
+- Run WebSocket loop
+- On clean close: exit task
+- On WebSocketDisconnected error: log, sleep 5s, reconnect
+- On fatal error: propagate and crash
 
-    Ok(())
-}
-```
+**Use case:** Long-running connections that need automatic recovery
 
 #### Pattern 3: Log and Continue (Non-Critical Failures)
 
-```rust
-async fn check_exits(&self) -> Result<()> {
-    let positions = self.positions.read().await;
+**Logic:**
+- Iterate through collection (e.g., positions)
+- For each item, try operation
+- On error: log with context, continue to next item
+- Don't propagate individual failures
 
-    for position in positions.values() {
-        // If one position check fails, continue with others
-        if let Err(e) = self.check_single_exit(position).await {
-            error!(
-                position_id = %position.id,
-                error = %e,
-                "Failed to check exit for position, will retry next cycle"
-            );
-            // Don't propagate error, continue checking other positions
-        }
-    }
-
-    Ok(())
-}
-```
+**Use case:** Batch operations where one failure shouldn't block others
 
 ### 9.3 Critical vs Non-Critical Errors
 
@@ -1387,67 +828,44 @@ async fn check_exits(&self) -> Result<()> {
 
 ### 10.1 Config File Structure (TOML)
 
-```toml
-# config/default.toml
+**Configuration Sections:**
 
-[kalshi]
-email = "your-email@example.com"
-password = "your-password"
-use_demo = true  # true = demo API, false = production
-websocket_url = "wss://demo-api.kalshi.co/trade-api/ws/v2"
-api_base_url = "https://demo-api.kalshi.co/trade-api/v2"
+**[kalshi]**
+- email, password (credentials)
+- use_demo (true = demo API, false = production)
+- websocket_url, api_base_url
 
-[runtime]
-strategy_dir = "strategies/"
-reload_strategies_interval_secs = 60  # Hot reload every minute
-position_check_interval_secs = 10     # Check exits every 10s
+**[runtime]**
+- strategy_dir (path to JSON strategies)
+- reload_strategies_interval_secs (hot reload frequency)
+- position_check_interval_secs (exit check frequency)
 
-[database]
-path = "data/calchas.db"
-max_connections = 5
+**[database]**
+- path (SQLite database file)
+- max_connections
 
-[web]
-host = "127.0.0.1"
-port = 8420
-serve_frontend = true
-frontend_dir = "frontend/dist"
+**[web]**
+- host, port (web server binding)
+- serve_frontend, frontend_dir
 
-[logging]
-level = "info"  # trace, debug, info, warn, error
-format = "json"  # json or pretty
-log_file = "logs/calchas.log"
+**[logging]**
+- level (trace, debug, info, warn, error)
+- format (json or pretty)
+- log_file (output path)
 
-[risk]
-# Global risk limits (can be overridden per strategy)
-max_total_positions = 10
-max_total_exposure_usd = 1000.00
-```
+**[risk]**
+- max_total_positions
+- max_total_exposure_usd
 
-### 10.2 Config Struct
+### 10.2 Config Loading
 
-```rust
-#[derive(Debug, Deserialize)]
-pub struct AppConfig {
-    pub kalshi: KalshiConfig,
-    pub runtime: RuntimeConfig,
-    pub database: DatabaseConfig,
-    pub web: WebConfig,
-    pub logging: LoggingConfig,
-    pub risk: RiskConfig,
-}
+**AppConfig Structure:** Contains all config sections (kalshi, runtime, database, web, logging, risk)
 
-impl AppConfig {
-    /// Load from file, merge with env vars
-    pub fn load(path: &str) -> Result<Self> {
-        let mut config = config::Config::builder()
-            .add_source(config::File::with_name(path))
-            .add_source(config::Environment::with_prefix("CALCHAS"))
-            .build()?;
-
-        config.try_deserialize()
-    }
-}
-```
+**Loading Process:**
+1. Load from TOML file
+2. Merge with environment variables (CALCHAS_ prefix)
+3. Deserialize using serde
+4. Validate all required fields
 
 **Design Decisions:**
 - **TOML format:** Human-readable, supports comments
@@ -1461,133 +879,42 @@ impl AppConfig {
 
 ### 11.1 SQLite Tables
 
-```sql
--- Markets (cached from Kalshi)
-CREATE TABLE markets (
-    id TEXT PRIMARY KEY,
-    ticker TEXT NOT NULL UNIQUE,
-    title TEXT NOT NULL,
-    category TEXT NOT NULL,
-    sub_category TEXT,
-    status TEXT NOT NULL,
-    yes_price REAL NOT NULL,
-    no_price REAL NOT NULL,
-    volume_usd REAL NOT NULL,
-    open_interest INTEGER NOT NULL,
-    event_time TIMESTAMP,
-    close_time TIMESTAMP NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+**markets** - Cached market data from Kalshi
+- Primary key: id
+- Fields: ticker, title, category, sub_category, status, yes_price, no_price, volume_usd, open_interest, event_time, close_time, timestamps
 
--- Positions (currently open)
-CREATE TABLE positions (
-    id TEXT PRIMARY KEY,
-    market_id TEXT NOT NULL,
-    strategy_id TEXT NOT NULL,
-    side TEXT NOT NULL,  -- 'Yes' or 'No'
-    entry_price REAL NOT NULL,
-    quantity INTEGER NOT NULL,
-    entry_time TIMESTAMP NOT NULL,
-    current_price REAL NOT NULL,
-    unrealized_pnl REAL NOT NULL,
-    peak_pnl REAL NOT NULL,
-    status TEXT NOT NULL,  -- 'Active', 'ExitPending', 'Closed'
-    take_profit_price REAL NOT NULL,
-    stop_loss_price REAL NOT NULL,
-    trailing_stop_distance REAL,
-    expiry_time TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (market_id) REFERENCES markets(id)
-);
+**positions** - Currently open positions
+- Primary key: id
+- Foreign keys: market_id
+- Fields: strategy_id, side, entry_price, quantity, entry_time, current_price, unrealized_pnl, peak_pnl, status, exit targets (take_profit, stop_loss, trailing_stop), timestamps
 
--- Orders (all orders, historical)
-CREATE TABLE orders (
-    id TEXT PRIMARY KEY,
-    market_id TEXT NOT NULL,
-    position_id TEXT,
-    side TEXT NOT NULL,
-    action TEXT NOT NULL,  -- 'Buy' or 'Sell'
-    order_type TEXT NOT NULL,  -- 'Market' or 'Limit'
-    price REAL NOT NULL,
-    quantity INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    filled_quantity INTEGER NOT NULL DEFAULT 0,
-    average_fill_price REAL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (market_id) REFERENCES markets(id),
-    FOREIGN KEY (position_id) REFERENCES positions(id)
-);
+**orders** - All orders (historical)
+- Primary key: id
+- Foreign keys: market_id, position_id (nullable)
+- Fields: side, action, order_type, price, quantity, status, filled_quantity, average_fill_price, timestamps
 
--- Trades (completed positions, immutable)
-CREATE TABLE trades (
-    id TEXT PRIMARY KEY,
-    position_id TEXT NOT NULL,
-    market_id TEXT NOT NULL,
-    strategy_id TEXT NOT NULL,
-    entry_order_id TEXT NOT NULL,
-    entry_price REAL NOT NULL,
-    entry_quantity INTEGER NOT NULL,
-    entry_time TIMESTAMP NOT NULL,
-    exit_order_id TEXT NOT NULL,
-    exit_price REAL NOT NULL,
-    exit_quantity INTEGER NOT NULL,
-    exit_time TIMESTAMP NOT NULL,
-    exit_reason TEXT NOT NULL,
-    gross_pnl REAL NOT NULL,
-    fees REAL NOT NULL,
-    net_pnl REAL NOT NULL,
-    return_pct REAL NOT NULL,
-    hold_duration_secs INTEGER NOT NULL,
-    notes TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (market_id) REFERENCES markets(id),
-    FOREIGN KEY (entry_order_id) REFERENCES orders(id),
-    FOREIGN KEY (exit_order_id) REFERENCES orders(id)
-);
+**trades** - Completed positions (immutable history)
+- Primary key: id
+- Foreign keys: market_id, position_id, entry_order_id, exit_order_id
+- Fields: strategy_id, entry details (price, quantity, time), exit details (price, quantity, time, reason), performance metrics (gross_pnl, fees, net_pnl, return_pct, hold_duration), notes, timestamps
 
--- Daily stats (for risk management)
-CREATE TABLE daily_stats (
-    date DATE PRIMARY KEY,
-    trades_count INTEGER NOT NULL DEFAULT 0,
-    net_pnl REAL NOT NULL DEFAULT 0.0,
-    gross_pnl REAL NOT NULL DEFAULT 0.0,
-    total_fees REAL NOT NULL DEFAULT 0.0,
-    win_count INTEGER NOT NULL DEFAULT 0,
-    loss_count INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+**daily_stats** - Daily performance for risk management
+- Primary key: date
+- Fields: trades_count, net_pnl, gross_pnl, total_fees, win_count, loss_count, timestamps
 
--- Indexes for performance
-CREATE INDEX idx_positions_status ON positions(status);
-CREATE INDEX idx_positions_market ON positions(market_id);
-CREATE INDEX idx_trades_strategy ON trades(strategy_id);
-CREATE INDEX idx_trades_exit_time ON trades(exit_time);
-```
+**Indexes:**
+- positions: status, market_id
+- trades: strategy_id, exit_time
 
 ### 11.2 Migration Strategy
 
-**Use `refinery` crate for migrations:**
+**Approach:** Use `refinery` crate for SQL migrations
 
-```rust
-// migrations/V1__initial_schema.sql
--- (SQL from above)
-
-// migrations/V2__add_trades_table.sql
-ALTER TABLE positions ADD COLUMN notes TEXT;
-```
-
-**Run on startup:**
-
-```rust
-async fn run_migrations(db: &SqliteDatabase) -> Result<()> {
-    embedded_migrations::run(&db.connection)?;
-    Ok(())
-}
-```
+**Process:**
+- Migrations stored in migrations/ directory
+- Versioned files (V1__initial_schema.sql, V2__add_column.sql, etc.)
+- Run embedded migrations on daemon startup
+- Fail fast if migration fails
 
 ---
 
@@ -1598,199 +925,61 @@ async fn run_migrations(db: &SqliteDatabase) -> Result<()> {
 **Base URL:** `https://demo-api.kalshi.co/trade-api/v2` (demo)
 
 #### Authentication
-
-```http
-POST /login
-Content-Type: application/json
-
-{
-  "email": "user@example.com",
-  "password": "password123"
-}
-
-Response:
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "member_id": "abc123"
-}
-```
+- **POST /login**
+- Request: email, password (JSON)
+- Response: token, member_id (JWT for authenticated requests)
 
 #### Get Markets
-
-```http
-GET /markets?limit=100&series_ticker=INXD&status=open
-Authorization: Bearer <token>
-
-Response:
-{
-  "markets": [
-    {
-      "ticker": "INXDKNFL-24FEB11-T2.5",
-      "event_ticker": "INXD",
-      "series_ticker": "INXDKNFL",
-      "title": "Will the Dow Jones close above 42,500 on Feb 11?",
-      "subtitle": "...",
-      "yes_bid": 45,
-      "yes_ask": 47,
-      "no_bid": 52,
-      "no_ask": 54,
-      "last_price": 46,
-      "volume": 12500,
-      "open_interest": 5000,
-      "status": "open",
-      "close_time": "2024-02-11T21:00:00Z"
-    }
-  ],
-  "cursor": "next_page_token"
-}
-```
+- **GET /markets?limit=100&series_ticker=INXD&status=open**
+- Headers: Authorization Bearer token
+- Response: Array of markets with ticker, title, prices (yes_bid, yes_ask, no_bid, no_ask), volume, open_interest, status, close_time, pagination cursor
 
 #### Place Order
-
-```http
-POST /orders
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "ticker": "INXDKNFL-24FEB11-T2.5",
-  "side": "yes",
-  "action": "buy",
-  "type": "market",
-  "count": 10
-}
-
-Response:
-{
-  "order": {
-    "order_id": "ord_abc123",
-    "status": "pending",
-    "...": "..."
-  }
-}
-```
+- **POST /orders**
+- Headers: Authorization Bearer token
+- Request: ticker, side (yes/no), action (buy/sell), type (market/limit), count
+- Response: order object with order_id, status
 
 ### 12.2 Kalshi WebSocket API (External)
 
-```javascript
-// Connect
-ws://demo-api.kalshi.co/trade-api/ws/v2
+**Connection:** `ws://demo-api.kalshi.co/trade-api/ws/v2`
 
-// Subscribe to markets
-{
-  "type": "subscribe",
-  "market_tickers": ["INXDKNFL-24FEB11-T2.5"]
-}
+**Subscribe Message:**
+- type: "subscribe"
+- market_tickers: array of ticker strings
 
-// Price update message
-{
-  "type": "market_update",
-  "market_ticker": "INXDKNFL-24FEB11-T2.5",
-  "yes_bid": 45,
-  "yes_ask": 47,
-  "timestamp": "2024-02-11T15:30:00Z"
-}
-```
+**Price Update Message:**
+- type: "market_update"
+- market_ticker, yes_bid, yes_ask, timestamp
 
 ### 12.3 Calchas REST API (Internal - for Web UI)
 
 **Base URL:** `http://localhost:8420/api`
 
 #### Get Active Positions
-
-```http
-GET /api/positions
-Response:
-{
-  "positions": [
-    {
-      "id": "pos_abc123",
-      "market_id": "mkt_xyz",
-      "strategy_id": "momentum_scalp",
-      "side": "yes",
-      "entry_price": 15.00,
-      "current_price": 22.00,
-      "unrealized_pnl": 7.00,
-      "return_pct": 46.67,
-      "status": "active"
-    }
-  ]
-}
-```
+- **GET /api/positions**
+- Response: Array of positions with id, market_id, strategy_id, side, entry_price, current_price, unrealized_pnl, return_pct, status
 
 #### Get Trades (Historical)
-
-```http
-GET /api/trades?limit=50&strategy_id=momentum_scalp
-Response:
-{
-  "trades": [
-    {
-      "id": "trade_abc123",
-      "market_title": "NFL: Chiefs to score next",
-      "strategy_id": "momentum_scalp",
-      "entry_price": 11.00,
-      "exit_price": 24.00,
-      "net_pnl": 12.50,
-      "return_pct": 118.18,
-      "exit_reason": "take_profit",
-      "hold_duration_secs": 1800
-    }
-  ]
-}
-```
+- **GET /api/trades?limit=50&strategy_id=momentum_scalp**
+- Response: Array of trades with id, market_title, strategy_id, entry/exit prices, net_pnl, return_pct, exit_reason, hold_duration
 
 #### Get Strategies
-
-```http
-GET /api/strategies
-Response:
-{
-  "strategies": [
-    {
-      "id": "momentum_scalp",
-      "name": "Momentum Scalp",
-      "enabled": true,
-      "active_positions": 3,
-      "total_trades_today": 5,
-      "net_pnl_today": 42.50
-    }
-  ]
-}
-```
+- **GET /api/strategies**
+- Response: Array of strategies with id, name, enabled status, active_positions count, total_trades_today, net_pnl_today
 
 ### 12.4 Calchas WebSocket API (Internal - for Web UI)
 
-```javascript
-// Connect
-ws://localhost:8420/ws
+**Connection:** `ws://localhost:8420/ws`
 
-// Subscribe to live updates
-{
-  "type": "subscribe",
-  "channels": ["positions", "trades", "markets"]
-}
+**Subscribe Message:**
+- type: "subscribe"
+- channels: array ("positions", "trades", "markets")
 
-// Position update
-{
-  "type": "position_update",
-  "position": {
-    "id": "pos_abc123",
-    "current_price": 23.00,
-    "unrealized_pnl": 8.00
-  }
-}
-
-// New trade
-{
-  "type": "trade_closed",
-  "trade": {
-    "id": "trade_xyz",
-    "net_pnl": 12.50,
-    "return_pct": 118.18
-  }
-}
-```
+**Message Types:**
+- **position_update**: Real-time position price/PnL updates
+- **trade_closed**: Notification when trade completes
+- **market_update**: Market data changes
 
 ---
 
@@ -1812,118 +1001,31 @@ ws://localhost:8420/ws
 ### 13.2 Unit Tests
 
 **What to test:**
-- Strategy filtering logic
-- PnL calculation
-- Exit condition checking
-- Order price calculation
+- Strategy filtering logic (check if market matches strategy filters)
+- PnL calculation (verify profit/loss math)
+- Exit condition checking (take profit, stop loss, trailing stop triggers)
+- Order price calculation (limit price offsets)
 
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_strategy_matches_underdog() {
-        let strategy = Strategy {
-            filters: StrategyFilters {
-                max_underdog_price: Some(dec!(20.0)),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let market = Market {
-            yes_price: dec!(15.0),
-            ..Default::default()
-        };
-
-        assert!(matches_strategy(&strategy, &market));
-    }
-
-    #[test]
-    fn test_take_profit_triggered() {
-        let position = Position {
-            entry_price: dec!(10.0),
-            current_price: dec!(16.0),
-            exit_target: ExitTarget {
-                take_profit_price: dec!(15.0),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        assert_eq!(should_exit(&position), Some(ExitReason::TakeProfit));
-    }
-}
-```
+**Approach:** Standard Rust #[test] functions testing pure logic
 
 ### 13.3 Integration Tests
 
 **What to test:**
-- Kalshi API client (with mock server)
-- Full entry → exit flow (with fake data)
-- Database persistence
+- Kalshi API client (use wiremock to simulate API responses)
+- Full entry → exit flow (with fake data, no real money)
+- Database persistence (verify SQLite read/write)
 
-```rust
-// tests/integration/kalshi_client_test.rs
-
-#[tokio::test]
-async fn test_fetch_markets() {
-    // Use wiremock to simulate Kalshi API
-    let mock_server = wiremock::MockServer::start().await;
-
-    Mock::given(method("GET"))
-        .and(path("/markets"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "markets": [...]
-        })))
-        .mount(&mock_server)
-        .await;
-
-    let client = KalshiClient::new_with_base_url(&mock_server.uri());
-    let markets = client.get_markets(MarketFilters::default()).await.unwrap();
-
-    assert_eq!(markets.len(), 1);
-}
-```
+**Approach:** Use tokio::test for async tests, wiremock for HTTP mocking
 
 ### 13.4 Simulation Mode (Paper Trading)
 
-**Mock order execution:**
+**SimulatedKalshiClient:**
+- Mock implementation of KalshiClient trait
+- Maintains in-memory markets and orders
+- Simulates immediate order fills at current market price
+- No real API calls, no real money
 
-```rust
-pub struct SimulatedKalshiClient {
-    markets: Arc<RwLock<HashMap<MarketId, Market>>>,
-    orders: Arc<RwLock<Vec<Order>>>,
-}
-
-impl SimulatedKalshiClient {
-    /// Simulate order fills at current market price
-    async fn place_order(&self, order: NewOrder) -> Result<Order> {
-        let markets = self.markets.read().await;
-        let market = markets.get(&order.market_id).unwrap();
-
-        // Simulate immediate fill at market price
-        let filled_order = Order {
-            id: OrderId(Uuid::new_v4().to_string()),
-            status: OrderStatus::Filled,
-            filled_quantity: order.quantity,
-            average_fill_price: Some(market.yes_price),
-            ..Default::default()
-        };
-
-        self.orders.write().await.push(filled_order.clone());
-        Ok(filled_order)
-    }
-}
-```
-
-**Usage:**
-
-```bash
-# Run in simulation mode (no real money)
-calchas daemon --mode simulation --config config/default.toml
-```
+**Usage:** CLI flag `--mode simulation` runs daemon with simulated orders
 
 ---
 
@@ -1956,25 +1058,17 @@ calchas daemon --mode simulation --config config/default.toml
 
 ### 14.2 systemd Service (Linux)
 
-```ini
-# /etc/systemd/system/calchas.service
+**Service Configuration:**
+- Unit: Description, After=network.target
+- Service Type: simple
+- User: dedicated calchas user
+- Working Directory: /opt/calchas
+- ExecStart: /opt/calchas/calchas daemon --config production.toml
+- Restart: always, RestartSec=10
+- Environment: RUST_LOG=info
+- Install: WantedBy=multi-user.target
 
-[Unit]
-Description=Calchas Prediction Market Trading Bot
-After=network.target
-
-[Service]
-Type=simple
-User=calchas
-WorkingDirectory=/opt/calchas
-ExecStart=/opt/calchas/calchas daemon --config /opt/calchas/config/production.toml
-Restart=always
-RestartSec=10
-Environment="RUST_LOG=info"
-
-[Install]
-WantedBy=multi-user.target
-```
+**File Location:** /etc/systemd/system/calchas.service
 
 ### 14.3 Monitoring & Alerting
 
@@ -2031,62 +1125,33 @@ The PRD defines 3 strategy types - here's how they map to JSON:
 
 #### Strategy A: Momentum Scalp (Underdog Only)
 
-```json
-{
-  "name": "nfl_underdog_scalp",
-  "filters": {
-    "max_underdog_price": 0.20,
-    "min_favorite_price": 0.80
-  },
-  "entry": {
-    "side": "underdog_only",
-    "amount_usd": 10
-  },
-  "exit": {
-    "take_profit_pct": 50,
-    "stop_loss_pct": -60
-  }
-}
-```
+**Concept:** Buy underdog side only when price is low, exit at 50% profit or -60% loss
+
+**JSON Fields:**
+- filters: max_underdog_price (0.20), min_favorite_price (0.80)
+- entry: side="underdog_only", amount_usd=10
+- exit: take_profit_pct=50, stop_loss_pct=-60
 
 #### Strategy B: Volatility Hedge (Both Sides)
 
-```json
-{
-  "name": "nhl_volatility_hedge",
-  "entry": {
-    "side": "both",  // Buy YES and NO
-    "amount_usd": 10  // $10 per side ($20 total)
-  },
-  "exit": {
-    "take_profit_pct": 15,  // Exit when combined position hits +15%
-    "stop_loss_pct": -10
-  }
-}
-```
+**Concept:** Buy both YES and NO sides simultaneously, profit from volatility
 
-**Implementation Note:** For `"side": "both"`, the Order Executor places two orders (YES and NO) and tracks them as a single logical position with combined P&L.
+**JSON Fields:**
+- entry: side="both" (places two orders), amount_usd=10 per side
+- exit: take_profit_pct=15, stop_loss_pct=-10 (combined position)
+
+**Implementation Note:** Order Executor places two orders (YES and NO) and tracks as single logical position with combined P&L
 
 #### Strategy C: Hybrid (Conditional Hedge)
 
-```json
-{
-  "name": "soccer_hybrid",
-  "entry": {
-    "side": "underdog_only",
-    "amount_usd": 10
-  },
-  "exit": {
-    "take_profit_pct": 50,
-    "stop_loss_pct": -60
-  },
-  "risk": {
-    "hedge_on_loss_pct": -30  // If down 30%, buy opposite side to hedge
-  }
-}
-```
+**Concept:** Start with underdog, add hedge if losing
 
-**Implementation Note:** Position Monitor checks `hedge_on_loss_pct`. If triggered, places opposite-side order to reduce downside risk.
+**JSON Fields:**
+- entry: side="underdog_only", amount_usd=10
+- exit: take_profit_pct=50, stop_loss_pct=-60
+- risk: hedge_on_loss_pct=-30 (trigger opposite-side order)
+
+**Implementation Note:** Position Monitor checks hedge trigger, places opposite order if PnL drops 30%
 
 ---
 
@@ -2096,175 +1161,57 @@ The PRD defines 3 strategy types - here's how they map to JSON:
 
 #### Metrics Tracker Component
 
-```rust
-// Add to trading/metrics_tracker.rs
+**Module:** trading/metrics_tracker.rs
 
-pub struct MetricsTracker {
-    db: Arc<SqliteDatabase>,
-}
+**MetricsTracker Responsibilities:**
+- Query daily_stats table for performance metrics
+- Calculate consecutive profitable days
+- Calculate net ROI, win rate, average profit per win
+- Check exit-to-live criteria (7+ profitable days, net positive, max loss <15%)
+- Return SimulationMetrics struct or ExitToLiveDecision enum
 
-impl MetricsTracker {
-    /// Get simulation phase metrics
-    pub async fn get_simulation_metrics(&self) -> SimulationMetrics {
-        // Query daily_stats table
-        SimulationMetrics {
-            consecutive_profitable_days: self.calc_consecutive_profitable().await?,
-            net_roi: self.calc_total_roi().await?,
-            win_rate: self.calc_win_rate().await?,
-            avg_profit_per_win: self.calc_avg_winning_trade().await?,
-        }
-    }
+**SimulationMetrics Fields:**
+- consecutive_profitable_days
+- net_roi
+- win_rate (0-100%)
+- avg_profit_per_win (%)
 
-    /// Check if ready to exit simulation mode (go live)
-    pub async fn check_exit_to_live_criteria(&self) -> ExitToLiveDecision {
-        let metrics = self.get_simulation_metrics().await?;
+**ExitToLiveDecision:**
+- Approved (all criteria met)
+- NotReady { unmet_criteria: Vec<usize> }
 
-        let criteria_met = vec![
-            metrics.consecutive_profitable_days >= 7,
-            metrics.net_roi > 0.0,
-            self.max_single_day_loss().await? < 0.15,  // <15% loss any day
-            self.strategy_behaves_as_expected().await?,  // Manual validation flag
-        ];
-
-        if criteria_met.iter().all(|&x| x) {
-            ExitToLiveDecision::Approved
-        } else {
-            ExitToLiveDecision::NotReady {
-                unmet_criteria: criteria_met.iter()
-                    .enumerate()
-                    .filter(|(_, &met)| !met)
-                    .map(|(i, _)| i)
-                    .collect(),
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct SimulationMetrics {
-    pub consecutive_profitable_days: u32,
-    pub net_roi: Decimal,
-    pub win_rate: Decimal,  // 0-100%
-    pub avg_profit_per_win: Decimal,  // %
-}
-
-#[derive(Debug)]
-pub enum ExitToLiveDecision {
-    Approved,
-    NotReady { unmet_criteria: Vec<usize> },
-}
-```
-
-**Add to daily_stats table:**
-
-```sql
-ALTER TABLE daily_stats ADD COLUMN is_profitable BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE daily_stats ADD COLUMN max_single_trade_loss_pct REAL;
-```
+**Database Schema Addition:**
+- daily_stats table needs: is_profitable (BOOLEAN), max_single_trade_loss_pct (REAL)
 
 ---
 
 ### 16.3 CLI Command Specifications
 
-**From PRD Section 10:** Exact command syntax
+**From PRD Section 10:** Command-line interface specification
 
-```rust
-// src/main.rs
+**CLI Framework:** clap with Parser and Subcommand derives
 
-use clap::{Parser, Subcommand};
+**Commands:**
 
-#[derive(Parser)]
-#[command(name = "calchas")]
-#[command(about = "Prediction market trading bot", long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
+**1. run** - Execute single strategy (one-off)
+- Arguments: --strategy (path to JSON), --dry-run (simulation flag), --max-positions (default 5)
+- Use case: Test strategy without running full daemon
 
-#[derive(Subcommand)]
-enum Commands {
-    /// Run a single strategy (one-off execution)
-    Run {
-        /// Path to strategy JSON file
-        #[arg(short, long)]
-        strategy: PathBuf,
+**2. daemon** - Start background service with web UI
+- Arguments: --config (TOML path, default config/default.toml), --port (default 8420), --strategies (directory path), --mode (simulation|live, default simulation)
+- Use case: Main production mode
 
-        /// Dry-run mode (simulation, no real money)
-        #[arg(long)]
-        dry_run: bool,
+**3. check-simulation** - Validate exit-to-live criteria
+- Arguments: --db (database path, default data/calchas.db)
+- Use case: Check if simulation is ready for live trading
 
-        /// Max number of positions to open
-        #[arg(long, default_value = "5")]
-        max_positions: usize,
-    },
+**4. export** - Export trade history to CSV
+- Arguments: --output (file path), --start-date (YYYY-MM-DD), --end-date (YYYY-MM-DD)
+- Use case: Analysis and reporting
 
-    /// Start daemon (background service + web UI)
-    Daemon {
-        /// Configuration file path
-        #[arg(short, long, default_value = "config/default.toml")]
-        config: PathBuf,
-
-        /// Web UI port
-        #[arg(short, long, default_value = "8420")]
-        port: u16,
-
-        /// Directory containing strategy JSON files
-        #[arg(long, default_value = "strategies/")]
-        strategies: PathBuf,
-
-        /// Mode: simulation or live
-        #[arg(long, default_value = "simulation")]
-        mode: TradingMode,
-    },
-
-    /// Check if simulation metrics meet exit-to-live criteria
-    CheckSimulation {
-        /// Database path
-        #[arg(long, default_value = "data/calchas.db")]
-        db: PathBuf,
-    },
-
-    /// Export trade history to CSV
-    Export {
-        /// Output file path
-        #[arg(short, long)]
-        output: PathBuf,
-
-        /// Start date (YYYY-MM-DD)
-        #[arg(long)]
-        start_date: Option<String>,
-
-        /// End date (YYYY-MM-DD)
-        #[arg(long)]
-        end_date: Option<String>,
-    },
-}
-
-#[derive(Clone, Debug, ValueEnum)]
-enum TradingMode {
-    Simulation,  // Paper trading (mock orders)
-    Live,        // Real money
-}
-```
-
-**Usage Examples:**
-
-```bash
-# One-off strategy run (dry-run)
-calchas run --strategy strategies/momentum_scalp.json --dry-run
-
-# Start daemon in simulation mode
-calchas daemon --config config/default.toml --port 8420 --mode simulation
-
-# Start daemon in LIVE mode (real money)
-calchas daemon --config config/production.toml --mode live
-
-# Check if ready to go live
-calchas check-simulation --db data/calchas.db
-
-# Export trades to CSV
-calchas export --output trades.csv --start-date 2025-01-01
-```
+**Trading Modes:**
+- simulation: Paper trading (mock orders, no real money)
+- live: Real trading (actual API calls, real money)
 
 ---
 
@@ -2274,92 +1221,27 @@ calchas export --output trades.csv --start-date 2025-01-01
 
 #### Simulation Validator Component
 
-```rust
-// Add to trading/simulation_validator.rs
+**Module:** trading/simulation_validator.rs
 
-pub struct SimulationValidator {
-    metrics_tracker: Arc<MetricsTracker>,
-    config: SimulationConfig,
-}
+**SimulationValidator Responsibilities:**
+- Use MetricsTracker to get simulation performance
+- Check exit-to-live criteria against thresholds
+- Generate human-readable report with recommendation
 
-#[derive(Debug, Clone)]
-pub struct SimulationConfig {
-    pub min_consecutive_profitable_days: u32,  // Default: 7
-    pub min_net_roi: Decimal,                  // Default: 0.0
-    pub max_single_day_loss_pct: Decimal,      // Default: 15.0
-}
+**SimulationConfig Thresholds:**
+- min_consecutive_profitable_days (default: 7)
+- min_net_roi (default: 0.0)
+- max_single_day_loss_pct (default: 15.0)
 
-impl SimulationValidator {
-    /// Generate exit-to-live report
-    pub async fn generate_report(&self) -> SimulationReport {
-        let metrics = self.metrics_tracker.get_simulation_metrics().await?;
-        let decision = self.metrics_tracker.check_exit_to_live_criteria().await?;
-
-        SimulationReport {
-            metrics,
-            decision,
-            recommendation: self.generate_recommendation(&metrics, &decision),
-        }
-    }
-
-    fn generate_recommendation(
-        &self,
-        metrics: &SimulationMetrics,
-        decision: &ExitToLiveDecision,
-    ) -> String {
-        match decision {
-            ExitToLiveDecision::Approved => {
-                format!(
-                    "✅ APPROVED FOR LIVE TRADING\n\
-                     - {} consecutive profitable days (target: 7+)\n\
-                     - {:.2}% net ROI\n\
-                     - {:.2}% win rate\n\
-                     You may proceed to live trading with confidence.",
-                    metrics.consecutive_profitable_days,
-                    metrics.net_roi * 100.0,
-                    metrics.win_rate
-                )
-            }
-            ExitToLiveDecision::NotReady { unmet_criteria } => {
-                format!(
-                    "⚠️  NOT READY FOR LIVE TRADING\n\
-                     Continue simulation until all criteria are met.\n\
-                     Unmet criteria: {:?}",
-                    unmet_criteria
-                )
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct SimulationReport {
-    pub metrics: SimulationMetrics,
-    pub decision: ExitToLiveDecision,
-    pub recommendation: String,
-}
-```
+**SimulationReport Structure:**
+- metrics: SimulationMetrics
+- decision: ExitToLiveDecision (Approved or NotReady)
+- recommendation: String (formatted message)
 
 **CLI Integration:**
-
-```bash
-$ calchas check-simulation
-
-📊 SIMULATION PERFORMANCE REPORT
-================================
-
-Metrics:
-  • Consecutive Profitable Days: 9 ✅ (target: 7+)
-  • Net ROI: +12.3% ✅ (target: >0%)
-  • Win Rate: 58% ✅ (target: 52%+)
-  • Avg Profit per Win: 6.2% ✅ (target: 2%+)
-  • Max Single-Day Loss: -8.5% ✅ (target: <15%)
-
-✅ APPROVED FOR LIVE TRADING
-
-You may proceed to live trading with:
-  calchas daemon --mode live --config config/production.toml
-```
+- Command: `calchas check-simulation`
+- Output: ASCII report with metrics checklist, decision, next steps
+- Exit codes: 0 if approved, 1 if not ready
 
 ---
 
@@ -2367,74 +1249,33 @@ You may proceed to live trading with:
 
 **From PRD Section 4.3:** Support for multiple market categories
 
-The architecture supports all categories via `MarketCategory` enum:
+**MarketCategory Enum:**
+- Sports { sport: SportType, game_status: GameStatus }
+- Politics
+- Economics
+- Crypto
+- Entertainment
+- Weather
+- Other
 
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub enum MarketCategory {
-    Sports {
-        sport: SportType,
-        game_status: GameStatus,
-    },
-    Politics,
-    Economics,
-    Crypto,
-    Entertainment,
-    Weather,
-    Other,
-}
+**SportType Sub-Categories:**
+- AmericanFootball, Hockey, Soccer, Basketball, Baseball
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub enum SportType {
-    AmericanFootball,
-    Hockey,
-    Soccer,
-    Basketball,
-    Baseball,
-}
+**GameStatus Options:**
+- PreGame, Live, Final, Postponed
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub enum GameStatus {
-    PreGame,
-    Live,
-    Final,
-    Postponed,
-}
-```
-
-**Future Extension for Sport-Specific Dynamics:**
-
-```rust
-// Future: Add sport-specific strategy hints
-pub trait SportStrategy {
-    /// Sport-specific momentum indicators
-    fn detect_momentum_shift(&self, market: &Market) -> MomentumSignal;
-}
-
-impl SportStrategy for FootballStrategy {
-    fn detect_momentum_shift(&self, market: &Market) -> MomentumSignal {
-        // Example: Detect offensive drive momentum
-        // (Would require additional market metadata from Kalshi)
-        MomentumSignal::Strong
-    }
-}
-```
-
-**Note:** MVP focuses on generic price-based strategies. Sport-specific logic (offensive drives, possession changes) is a v2.0+ feature.
+**Future Extension:**
+- Sport-specific strategy traits (e.g., detect offensive drive momentum)
+- Requires additional market metadata from Kalshi
+- MVP focuses on generic price-based strategies
 
 ---
 
 ### 16.6 Updated Module Structure
 
-Add new modules to support PRD requirements:
-
-```
-src/
-├── trading/
-│   ├── metrics_tracker.rs        # NEW: Track simulation/live metrics
-│   ├── simulation_validator.rs   # NEW: Check exit-to-live criteria
-│   └── ...
-```
+**New Modules for PRD Compliance:**
+- src/trading/metrics_tracker.rs - Track simulation/live metrics
+- src/trading/simulation_validator.rs - Check exit-to-live criteria
 
 ---
 
@@ -2486,6 +1327,259 @@ src/
 
 ---
 
-**Version:** 1.1
+---
+
+## 18. Phase 0: Strategy Validation (Post-Engine)
+
+**Status:** Optional - Can be done AFTER engine is built
+
+**Key Insight:** Calchas is **trading infrastructure**, not a specific strategy. The engine's value is independent of whether any particular strategy is profitable.
+
+### 18.1 Engine vs Strategy Separation
+
+```
+┌─────────────────────────────────────────────┐
+│  CALCHAS ENGINE (Hard Engineering Problem)  │
+│  - Reusable infrastructure                  │
+│  - 12 weeks to build                        │
+│  - Valuable regardless of strategy          │
+└─────────────────────────────────────────────┘
+                    │
+                    │ Executes
+                    ▼
+┌─────────────────────────────────────────────┐
+│  STRATEGY JSONs (Trading Logic Problem)     │
+│  - Disposable configuration                 │
+│  - Hot-swappable (no code changes)          │
+│  - Iterate rapidly                          │
+└─────────────────────────────────────────────┘
+```
+
+**Philosophy:** Build the engine FIRST, validate strategies SECOND (using the engine you built).
+
+### 18.2 Why Build Engine Before Validating Strategies
+
+| Reason | Explanation |
+|--------|-------------|
+| **Learning Goal** | Primary goal is learning Rust, not making money immediately |
+| **Reusable Infrastructure** | Engine works for ANY strategy (momentum, arbitrage, market-making, ML-based) |
+| **Strategy Independence** | Strategies are JSON files - swap them without touching Rust code |
+| **Data Collection** | Engine itself collects data for backtesting future strategies |
+| **Simulation Mode** | Built-in paper trading validates strategies WITHOUT risking capital |
+
+### 18.3 Post-Engine Strategy Validation Process
+
+**After completing Phase 1-6 (engine built), validate strategies systematically:**
+
+#### Step 1: Simulation Mode Testing (30 days)
+
+```bash
+# Run momentum strategy in simulation
+calchas daemon --mode simulation --strategies strategies/momentum_scalp.json
+
+# Collect data in SQLite database
+# trades table: entry_price, exit_price, pnl, exit_reason, hold_duration
+```
+
+#### Step 2: Analyze Results
+
+**SQL Analysis - Query performance metrics from trades table:**
+- Total trades count
+- Win rate percentage (wins / total)
+- Average P&L, total P&L
+- Average win vs average loss
+- Average return percentage
+- Max return, max loss
+
+**Acceptance Criteria:**
+- Win rate >55% (break-even after fees ~52%)
+- Expected value per trade >0
+- Total PnL >0 over 30 days
+- Max drawdown <30%
+
+#### Step 3: Statistical Significance Testing
+
+**Python Analysis Using pandas + scipy.stats:**
+1. Export trades from SQLite
+2. Binomial test: Is win rate significantly >50%? (p-value < 0.05)
+3. Calculate Sharpe ratio: mean return / std dev * sqrt(252) for annualization
+4. Verify statistical significance
+
+**Rejection Criteria:**
+- p-value >0.05: Not statistically significant (could be luck)
+- Sharpe ratio <1.0: Poor risk-adjusted returns
+
+#### Step 4: Iterate on Strategies
+
+**If momentum_scalp fails validation:**
+- Try different strategy JSON (arbitrage, market-making, mean reversion)
+- Test multiple strategies simultaneously
+- Iterate on parameters (price thresholds, liquidity minimums, exit targets)
+
+**Strategy Iteration Process:**
+1. Identify underperforming parameters (e.g., max_underdog_price too high)
+2. Edit JSON file with new values
+3. Restart simulation with updated strategy
+4. Collect 30+ days of new data
+5. Re-analyze
+
+**No Rust code changes needed - strategies are pure configuration**
+
+### 18.4 Formal Methods for Strategy Analysis
+
+Once you have 30+ days of data from Calchas simulation mode:
+
+#### Kelly Criterion (Optimal Bet Sizing)
+
+**Formula:** f* = (p × b - q) / b
+
+Where:
+- f* = fraction of bankroll to bet
+- p = probability of winning (win rate)
+- q = probability of losing (1 - p)
+- b = average win / average loss
+
+**Implementation:**
+1. Calculate from historical trades data
+2. If Kelly < 0, strategy has negative expectancy (don't trade)
+3. If Kelly = 0.15, optimal bet is 15% of bankroll
+4. Use Quarter-Kelly (0.25 × Kelly) for conservative sizing
+
+**Strategy JSON Extension (Future):**
+- entry.amount_usd: "kelly" (dynamic sizing)
+- entry.kelly_fraction: 0.25 (conservative multiplier)
+
+#### Bayesian Probability Model (Advanced)
+
+**Concept:** Train ML model to predict market outcomes, compare to market price
+
+**Process:**
+1. Collect game context data (field position, score, time remaining)
+2. Train logistic regression: P(Team scores | Context)
+3. In real-time, compare model prediction to market price
+4. If model edge >10%, place bet
+
+**Strategy JSON Extension (Future):**
+- model.type: "bayesian_probability"
+- model.endpoint: External ML service URL
+- model.min_edge: Minimum probability edge to trigger bet (e.g., 0.10)
+
+### 18.5 Alternative Strategies to Test
+
+If momentum strategy fails, try these (all use same Calchas engine):
+
+#### Strategy 1: Cross-Platform Arbitrage
+
+**Concept:** Exploit price differences between Kalshi and Polymarket
+
+**Configuration:**
+- filters: min_price_discrepancy (5¢)
+- entry: side="both" (buy low platform, sell high platform)
+- exit: take_profit_pct=3, stop_loss_pct=-1 (small but guaranteed profit)
+
+#### Strategy 2: Market Making
+
+**Concept:** Profit from bid/ask spread by providing liquidity
+
+**Configuration:**
+- entry: side="both", order_type="limit", spread=0.02 (2¢ profit target)
+- exit: take_profit_pct=2, max_hold_minutes=60 (don't hold inventory)
+
+#### Strategy 3: Mean Reversion
+
+**Concept:** Bet against sudden price spikes, expecting reversion to mean
+
+**Configuration:**
+- filters: price_spike_pct=30 (trigger after 30% move in 10 minutes)
+- entry: side="opposite" (fade the spike)
+- exit: take_profit_pct=10, stop_loss_pct=-20
+
+### 18.6 When to Go Live
+
+**Exit Simulation → Live Trading Criteria:**
+
+From PRD Section 2.4, ALL must be met:
+1. ✅ 7+ consecutive profitable days (proven consistency)
+2. ✅ Net positive over full simulation period
+3. ✅ No single-day loss exceeding 15% (risk management works)
+4. ✅ Strategy behaves as expected (no surprises)
+
+**Additional Statistical Criteria:**
+5. ✅ Win rate >55% (statistically significant, p <0.05)
+6. ✅ Sharpe ratio >1.0 (decent risk-adjusted returns)
+7. ✅ Kelly fraction >0 (positive expectancy)
+8. ✅ Tested on 1000+ trades (sufficient sample size)
+
+**Validation Command:** `calchas check-simulation --db data/calchas.db`
+
+**Expected Output:**
+- Approval status (✅ APPROVED or ⚠️ NOT READY)
+- Consecutive profitable days count vs target
+- Net ROI percentage
+- Win rate with p-value (statistical significance)
+- Sharpe ratio
+- Kelly fraction (optimal bet sizing)
+
+---
+
+## 19. Next Steps: Implementation Roadmap
+
+### Phase 1: Foundation (Week 1-2)
+- [ ] Project setup (Cargo.toml, dependencies)
+- [ ] Define core data models (models/)
+- [ ] Strategy JSON loader (strategy/loader.rs)
+- [ ] **CLI command structure** (clap integration)
+- [ ] Unit tests for models
+
+### Phase 2: Kalshi Integration (Week 3-4)
+- [ ] Kalshi REST client (platforms/kalshi/client.rs)
+- [ ] Authentication flow
+- [ ] Fetch markets endpoint
+- [ ] Place order endpoint
+- [ ] **Simulation mode** (SimulatedKalshiClient)
+- [ ] Integration tests with mock server
+
+### Phase 3: WebSocket & Real-Time (Week 5-6)
+- [ ] Kalshi WebSocket client (platforms/kalshi/websocket.rs)
+- [ ] Price update broadcasting
+- [ ] Strategy evaluation task
+- [ ] Position monitoring task
+- [ ] **Support for 3 strategy types** (underdog, both sides, hybrid)
+
+### Phase 4: Order Execution (Week 7-8)
+- [ ] Order executor task
+- [ ] Position manager (trading/position_manager.rs)
+- [ ] Risk manager (trading/risk_manager.rs)
+- [ ] SQLite integration (storage/sqlite.rs)
+- [ ] **Metrics tracker** (daily stats, ROI, win rate)
+
+### Phase 5: Web Dashboard (Week 9-10)
+- [ ] Axum server (web/server.rs)
+- [ ] REST API endpoints
+- [ ] WebSocket for live updates
+- [ ] React frontend (basic)
+- [ ] **Performance charts** (ROI, drawdown, win rate)
+
+### Phase 6: Production Ready (Week 11-12)
+- [ ] Structured logging (tracing)
+- [ ] **CLI commands fully implemented** (run, daemon, check-simulation, export)
+- [ ] Configuration management
+- [ ] Graceful shutdown
+- [ ] Integration tests (full flow)
+- [ ] **Simulation validator** (exit-to-live criteria)
+
+### Phase 0 (Post-Implementation): Strategy Validation
+- [ ] Run simulation mode for 30 days
+- [ ] Collect trade data in SQLite
+- [ ] Analyze with SQL + Python (pandas, scipy)
+- [ ] Test statistical significance (p-value, Sharpe ratio)
+- [ ] Iterate on strategies (just JSON edits)
+- [ ] Apply Kelly Criterion for bet sizing
+- [ ] Validate exit-to-live criteria
+- [ ] Go live when all criteria met
+
+---
+
+**Version:** 1.2
 **Status:** PRD-Compliant, Ready for Implementation
-**Next:** Map syllabus to architecture, begin Phase 1
+**Next:** Begin Phase 1 (Foundation)

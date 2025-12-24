@@ -93,32 +93,11 @@ The engine handles platform connections, market aggregation, order execution, an
 
 ### 4.2 System Components
 
-```
-┌─────────────────────────────────────────────────────┐
-│                     CALCHAS ENGINE                   │
-├─────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
-│  │   Kalshi    │  │ Polymarket  │  │  Future...  │  │
-│  │   Client    │  │   Client    │  │   Client    │  │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  │
-│         └────────────┬───────────────────┘          │
-│                      ▼                               │
-│         ┌─────────────────────────┐                 │
-│         │   Market Aggregator     │                 │
-│         │   (unified data model)  │                 │
-│         └───────────┬─────────────┘                 │
-│                     ▼                                │
-│         ┌─────────────────────────┐                 │
-│         │    Strategy Engine      │◄── strategies/  │
-│         │    (loads & executes)   │                 │
-│         └───────────┬─────────────┘                 │
-│                     ▼                                │
-│         ┌─────────────────────────┐                 │
-│         │   Order Manager         │                 │
-│         │   (execute, track, exit)│                 │
-│         └─────────────────────────┘                 │
-└─────────────────────────────────────────────────────┘
-```
+**CALCHAS ENGINE Layers:**
+1. **Platform Clients** - Kalshi Client, Polymarket Client, Future Clients
+2. **Market Aggregator** - Unified data model across platforms
+3. **Strategy Engine** - Loads and executes strategy JSON files
+4. **Order Manager** - Execute, track, and exit positions
 
 ### 4.3 Market Categories (Extensible)
 
@@ -160,64 +139,23 @@ While MVP focuses on sports, the architecture supports all prediction market cat
 
 ### 5.2 Strategy File Structure
 
-Example: `strategies/momentum_scalp.json`
+**Example:** `strategies/momentum_scalp.json`
 
-```json
-{
-  "name": "momentum_scalp",
-  "description": "Buy cheap underdogs, exit on momentum spike",
-  "version": "1.0",
-  
-  "filters": {
-    "categories": ["sports:american_football", "sports:nhl"],
-    "platforms": ["kalshi", "polymarket"],
-    "min_favorite_price": 0.80,
-    "max_underdog_price": 0.20,
-    "min_liquidity_usd": 1000,
-    "game_status": ["pre_game", "live"]
-  },
-  
-  "entry": {
-    "side": "underdog_only",
-    "amount_usd": 10,
-    "order_type": "market"
-  },
-  
-  "exit": {
-    "take_profit_pct": 50,
-    "stop_loss_pct": -60,
-    "trailing_stop_pct": null,
-    "max_hold_minutes": 180
-  },
-  
-  "risk": {
-    "max_concurrent_positions": 5,
-    "max_daily_loss_usd": 50,
-    "cooldown_after_loss_minutes": 15
-  }
-}
-```
+**JSON Structure:**
+- name, description, version
+- filters: categories, platforms, price thresholds, liquidity minimums, game status
+- entry: side (underdog_only/both/favorite_only), amount_usd, order_type
+- exit: take_profit_pct, stop_loss_pct, trailing_stop_pct, max_hold_minutes
+- risk: max_concurrent_positions, max_daily_loss_usd, cooldown_after_loss_minutes
 
 ### 5.3 Strategy Directory Organization
 
-```
-strategies/
-├── sports/
-│   ├── nfl_underdog.json
-│   ├── nhl_volatility.json
-│   └── soccer_late_goal.json
-├── politics/
-│   ├── poll_swing.json
-│   └── election_eve.json
-├── crypto/
-│   ├── btc_momentum.json
-│   └── etf_approval.json
-├── economics/
-│   └── fed_rate_surprise.json
-└── generic/
-    ├── cheap_longshot.json
-    └── high_volume_scalp.json
-```
+**Directory Structure:**
+- strategies/sports/ - NFL, NHL, soccer strategies
+- strategies/politics/ - Election, poll-based strategies
+- strategies/crypto/ - BTC, ETF strategies
+- strategies/economics/ - Fed, economic indicator strategies
+- strategies/generic/ - Platform-agnostic strategies
 
 ---
 
@@ -334,74 +272,37 @@ strategies/
 
 ## 9. Project Structure
 
-```
-calchas/
-├── Cargo.toml
-├── config/
-│   └── default.toml              # API keys, defaults
-├── strategies/
-│   ├── momentum_scalp.json
-│   ├── volatility_hedge.json
-│   └── examples/
-├── src/
-│   ├── main.rs                   # CLI entry point
-│   ├── daemon.rs                 # Background service
-│   ├── lib.rs
-│   ├── config/
-│   │   └── mod.rs                # Config loading
-│   ├── platforms/
-│   │   ├── mod.rs
-│   │   ├── kalshi.rs             # Kalshi client
-│   │   └── polymarket.rs         # Polymarket client (v1.5)
-│   ├── markets/
-│   │   ├── mod.rs
-│   │   ├── aggregator.rs         # Unified market view
-│   │   └── types.rs              # Market, Position, Order
-│   ├── strategy/
-│   │   ├── mod.rs
-│   │   ├── loader.rs             # JSON strategy parser
-│   │   └── engine.rs             # Strategy execution
-│   ├── trading/
-│   │   ├── mod.rs
-│   │   ├── orders.rs             # Order management
-│   │   ├── positions.rs          # Position tracking
-│   │   └── simulator.rs          # Paper trading
-│   ├── storage/
-│   │   └── sqlite.rs             # Trade history, state
-│   └── web/
-│       ├── mod.rs
-│       └── server.rs             # Axum backend (REST + WebSocket)
-├── frontend/
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── vite.config.ts
-│   ├── index.html
-│   └── src/
-│       ├── App.tsx
-│       ├── main.tsx
-│       └── components/
-│           ├── PositionTracker.tsx    # Real-time P&L
-│           ├── StrategyMonitor.tsx    # Active strategies
-│           ├── MarketScanner.tsx      # Opportunities feed
-│           ├── TradeHistory.tsx       # Historical trades
-│           └── PerformanceCharts.tsx  # ROI, drawdown
-├── migrations/                   # SQLite migrations
-└── tests/
-```
+**Top-Level:**
+- Cargo.toml - Rust project configuration
+- config/ - TOML configuration files (API keys, defaults)
+- strategies/ - JSON strategy files (momentum_scalp.json, volatility_hedge.json, examples/)
+
+**Source Code (src/):**
+- main.rs, daemon.rs, lib.rs - Entry points
+- config/ - Configuration loading
+- platforms/ - Kalshi and Polymarket clients
+- markets/ - Market aggregator, unified types
+- strategy/ - JSON loader, strategy execution engine
+- trading/ - Order management, position tracking, simulator
+- storage/ - SQLite trade history
+- web/ - Axum server (REST + WebSocket)
+
+**Frontend:**
+- React + TypeScript + Vite setup
+- Components: PositionTracker, StrategyMonitor, MarketScanner, TradeHistory, PerformanceCharts
+
+**Other:**
+- migrations/ - SQLite schema migrations
+- tests/ - Test files
 
 ---
 
 ## 10. Run Modes
 
-```bash
-# One-off CLI run (dry-run simulation)
-calchas run --strategy momentum_scalp.json --dry-run
-
-# Start daemon (background process + web UI)
-calchas daemon --port 8420
-
-# Then visit http://localhost:8420 for live dashboard
-```
+**CLI Commands:**
+- `calchas run --strategy momentum_scalp.json --dry-run` - One-off simulation
+- `calchas daemon --port 8420` - Start background service with web UI
+- Visit http://localhost:8420 for live dashboard
 
 ---
 
@@ -506,46 +407,17 @@ This validates the core strategy of buying cheap underdog contracts and exiting 
 
 ### 12.1 Integration Architecture (Option A: Loose Coupling)
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    HARBINGER                         │
-│  (Event Detection & Market Intelligence)            │
-├─────────────────────────────────────────────────────┤
-│                                                      │
-│  Market Context API (Port 8095)                     │
-│  ├─ Volatility multipliers (1.0x-1.54x)             │
-│  ├─ Fear & Greed Index                              │
-│  └─ Trading session indicators                      │
-│                                                      │
-│  Signal Aggregator API (Port 8087)                  │
-│  ├─ Macro event detection                           │
-│  ├─ Cross-market correlations                       │
-│  └─ WebSocket: ws://localhost:8087/ws/macro-events  │
-│                                                      │
-│  Sentiment Analysis                                 │
-│  ├─ Daily/rolling sentiment scores                  │
-│  └─ LLM-generated market narratives                 │
-│                                                      │
-└─────────────────────┬───────────────────────────────┘
-                      │
-                      │ HTTP/WebSocket
-                      ▼
-┌─────────────────────────────────────────────────────┐
-│                    CALCHAS                           │
-│  (Prediction Market Trading Bot)                    │
-├─────────────────────────────────────────────────────┤
-│                                                      │
-│  Strategy Engine                                    │
-│  └─ Consumes Harbinger signals (optional)           │
-│                                                      │
-│  Bet Sizing Module                                  │
-│  └─ Applies volatility multipliers from Harbinger   │
-│                                                      │
-│  Market Filter                                      │
-│  └─ Avoids bets during high-volatility periods      │
-│                                                      │
-└─────────────────────────────────────────────────────┘
-```
+**HARBINGER (Event Detection & Market Intelligence):**
+- Market Context API (Port 8095): Volatility multipliers, Fear & Greed Index, trading session indicators
+- Signal Aggregator API (Port 8087): Macro event detection, cross-market correlations, WebSocket macro events
+- Sentiment Analysis: Daily/rolling sentiment scores, LLM-generated narratives
+
+**Communication:** HTTP/WebSocket
+
+**CALCHAS (Prediction Market Trading Bot):**
+- Strategy Engine: Consumes Harbinger signals (optional)
+- Bet Sizing Module: Applies volatility multipliers from Harbinger
+- Market Filter: Avoids bets during high-volatility periods
 
 ### 12.2 Integration Phases
 
@@ -553,20 +425,9 @@ This validates the core strategy of buying cheap underdog contracts and exiting 
 **Goal:** Use Harbinger's volatility indicators to adjust Calchas bet sizing
 
 **Implementation:**
-```rust
-// Calchas queries Harbinger's Market Context API
-GET http://localhost:8095/context/multiplier
-→ Returns: {
-    "multiplier": 1.35,
-    "volatility": "high",
-    "fear_greed_index": 25,
-    "session": "us_trading"
-}
-
-// Apply to strategy execution
-base_bet_size = $10
-adjusted_bet = base_bet_size / volatility_multiplier  // Bet smaller during chaos
-```
+- Calchas queries Harbinger's Market Context API (GET http://localhost:8095/context/multiplier)
+- Response includes: multiplier, volatility level, fear_greed_index, trading session
+- Adjust bet sizing: base_bet_size / volatility_multiplier (bet smaller during chaos)
 
 **Benefits:**
 - Reduce bet sizes during market chaos (avoid overexposure)
@@ -583,24 +444,9 @@ adjusted_bet = base_bet_size / volatility_multiplier  // Bet smaller during chao
 **Goal:** Pause or adjust Calchas strategies during major market events
 
 **Implementation:**
-```rust
-// Calchas subscribes to Harbinger WebSocket
-ws://localhost:8087/ws/macro-events
-
-// Receives alerts like:
-{
-    "severity": "critical",
-    "title": "Fed announces emergency rate cut",
-    "affected_markets": ["stocks", "crypto"],
-    "confidence": 95,
-    "narrative": "..."
-}
-
-// Calchas response:
-if severity == "critical" && affected_markets.contains("stocks") {
-    pause_new_positions();  // Freeze trading until clarity
-}
-```
+- Calchas subscribes to Harbinger WebSocket (ws://localhost:8087/ws/macro-events)
+- Receives alerts with: severity, title, affected_markets, confidence, narrative
+- On critical events affecting relevant markets, pause new positions until clarity
 
 **Benefits:**
 - Avoid betting during black swan events
@@ -617,31 +463,11 @@ if severity == "critical" && affected_markets.contains("stocks") {
 **Goal:** Use Harbinger's dual-model LLM pipeline to evaluate prediction market events
 
 **Implementation:**
-```rust
-// Calchas sends prediction market event to Harbinger
-POST http://localhost:8090/events
-{
-    "source_type": "prediction_market",
-    "event_type": "sports_game",
-    "content": "NFL: Chiefs vs 49ers, Chiefs down 14-0 in Q2"
-}
-
-// Harbinger processes via dual-model strategy
-→ Fast model (Qwen2.5-3B) evaluates significance
-→ If uncertain, escalates to accurate model (Qwen3-4B)
-
-// Returns structured result
-{
-    "is_significant": true,
-    "confidence": 0.87,
-    "reasoning": "Large deficit early in game suggests momentum shift opportunity"
-}
-
-// Calchas uses this to adjust entry confidence
-if is_significant && confidence > 0.8 {
-    increase_bet_size(1.2x);  // Higher conviction
-}
-```
+- Calchas sends event to Harbinger (POST http://localhost:8090/events)
+- Event includes: source_type, event_type, content (e.g., "NFL: Chiefs down 14-0 in Q2")
+- Harbinger processes via dual-model: Fast model (Qwen2.5-3B) for initial eval, escalates to accurate model (Qwen3-4B) if uncertain
+- Returns: is_significant, confidence, reasoning
+- Calchas adjusts bet sizing based on confidence level
 
 **Benefits:**
 - Reuse Harbinger's proven LLM infrastructure (no new model servers)
@@ -665,18 +491,10 @@ if is_significant && confidence > 0.8 {
 - Feeds into Harbinger's macro event detection
 
 **Architecture:**
-```
-Harbinger Signal Aggregator
-    ├─ Twitter Collector
-    ├─ RSS Collector
-    ├─ Stock Tracker
-    └─ Prediction Market Analyzer (NEW)
-        ├─ Kalshi WebSocket
-        ├─ Polymarket WebSocket
-        └─ Feeds events → Event Processor (port 8090)
-
-Calchas → Consumes signals from Harbinger Signal Aggregator
-```
+- Harbinger Signal Aggregator with new service: Prediction Market Analyzer
+- Collects from: Twitter, RSS, Stock Tracker, Prediction Markets (Kalshi, Polymarket WebSockets)
+- Feeds events to Event Processor (port 8090)
+- Calchas consumes signals from Harbinger Signal Aggregator
 
 **Benefits:**
 - Single intelligence platform for all trading activities

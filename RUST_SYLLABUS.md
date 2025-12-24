@@ -128,14 +128,7 @@
 - [ ] Consuming: `.collect()`, `.count()`, `.sum()`
 - [ ] Lazy evaluation (nothing happens until consumed)
 - [ ] **File:** `src/strategy/evaluator.rs`
-- [ ] **Implementation:**
-  ```rust
-  strategies.values()
-      .filter(|s| s.enabled)
-      .filter(|s| matches_filters(s, &market))
-      .map(|s| create_entry_signal(s, &market))
-      .collect()
-  ```
+- [ ] **Implementation:** Chain iterator methods to filter enabled strategies, match filters, and create entry signals
 
 ### 2.4 Traits
 > **Traits as interfaces** - Core abstraction
@@ -167,18 +160,7 @@
 - [ ] `use` for imports
 - [ ] File-based modules: `src/models/market.rs` becomes `mod models::market`
 - [ ] **Files:** Organize all modules according to Architecture Section 5.1
-- [ ] **Implementation:** Create full module tree:
-  ```
-  src/
-  ├── models/
-  ├── platforms/
-  ├── strategy/
-  ├── trading/
-  ├── storage/
-  ├── runtime/
-  ├── web/
-  └── utils/
-  ```
+- [ ] **Implementation:** Create module tree with models/, platforms/, strategy/, trading/, storage/, runtime/, web/, utils/ directories
 
 ### 2.8 Testing
 - [ ] `#[test]` attribute for unit tests
@@ -186,19 +168,7 @@
 - [ ] `#[cfg(test)]` module for test-only code
 - [ ] Run tests: `cargo test`
 - [ ] **File:** `src/models/position.rs` (inline tests)
-- [ ] **Implementation:**
-  ```rust
-  #[cfg(test)]
-  mod tests {
-      use super::*;
-
-      #[test]
-      fn test_calculate_pnl() {
-          let position = Position { entry_price: dec!(10.0), current_price: dec!(15.0), ... };
-          assert_eq!(position.unrealized_pnl(), dec!(5.0));
-      }
-  }
-  ```
+- [ ] **Implementation:** Write test for calculating unrealized PnL based on entry and current price
 
 ### 2.9 JSON Serialization (serde)
 - [ ] Add `serde = { version = "1.0", features = ["derive"] }` to Cargo.toml
@@ -206,14 +176,7 @@
 - [ ] `#[derive(Serialize, Deserialize)]` on structs
 - [ ] Customize with `#[serde(rename = "...")]`, `#[serde(default)]`
 - [ ] **File:** `src/strategy/loader.rs`
-- [ ] **Implementation:**
-  ```rust
-  pub fn load_strategy(path: &Path) -> Result<Strategy> {
-      let json = std::fs::read_to_string(path)?;
-      let strategy: Strategy = serde_json::from_str(&json)?;
-      Ok(strategy)
-  }
-  ```
+- [ ] **Implementation:** Load strategy JSON file, deserialize to Strategy struct using serde_json
 
 ### 2.10 Standard Library Before Crates
 > **stdlib is powerful** - Use before reaching for external crates
@@ -255,13 +218,7 @@
 - [ ] `tokio::spawn()` to spawn concurrent tasks
 - [ ] `JoinHandle` to wait for tasks
 - [ ] **File:** `src/main.rs`
-- [ ] **Implementation:**
-  ```rust
-  #[tokio::main]
-  async fn main() -> Result<()> {
-      // Entry point with Tokio runtime
-  }
-  ```
+- [ ] **Implementation:** Add tokio::main attribute to main function to enable async runtime
 
 ### 3.4 HTTP Clients (reqwest)
 - [ ] Add `reqwest = { version = "0.11", features = ["json"] }` to Cargo.toml
@@ -270,20 +227,7 @@
 - [ ] POST with JSON: `client.post(url).json(&body).send().await?`
 - [ ] Headers: `.header("Authorization", "Bearer token")`
 - [ ] **File:** `src/platforms/kalshi/client.rs`
-- [ ] **Implementation:** `KalshiClient` from Architecture Section 6.1.1
-  ```rust
-  pub struct KalshiClient {
-      http_client: reqwest::Client,
-      base_url: String,
-      auth_token: RwLock<Option<String>>,
-  }
-
-  impl KalshiClient {
-      pub async fn login(&self, email: &str, password: &str) -> Result<String> { ... }
-      pub async fn get_markets(&self, filters: MarketFilters) -> Result<Vec<Market>> { ... }
-      pub async fn place_order(&self, order: NewOrder) -> Result<Order> { ... }
-  }
-  ```
+- [ ] **Implementation:** KalshiClient struct with http_client, base_url, auth_token (RwLock) - implement login, get_markets, place_order methods
 
 ### 3.5 JSON Serialization (Async Context)
 - [ ] Deserialize JSON response: `response.json::<Vec<Market>>().await?`
@@ -297,19 +241,7 @@
 - [ ] Send message: `ws_stream.send(Message::Text(...)).await?`
 - [ ] Receive messages in loop: `while let Some(msg) = ws_stream.next().await { ... }`
 - [ ] **File:** `src/platforms/kalshi/websocket.rs`
-- [ ] **Implementation:** `KalshiWebSocket` from Architecture Section 6.1.2
-  ```rust
-  pub struct KalshiWebSocket {
-      ws_stream: WebSocketStream<...>,
-      subscriptions: HashSet<MarketId>,
-  }
-
-  impl KalshiWebSocket {
-      pub async fn connect(auth_token: &str) -> Result<Self> { ... }
-      pub async fn subscribe(&mut self, market_ids: &[MarketId]) -> Result<()> { ... }
-      pub async fn next_update(&mut self) -> Result<PriceUpdate> { ... }
-  }
-  ```
+- [ ] **Implementation:** KalshiWebSocket struct with ws_stream and subscriptions (HashSet) - implement connect, subscribe, next_update methods
 
 ### 3.7 Channels (Async - Tokio)
 - [ ] `tokio::sync::mpsc::channel()` - Multi-producer, single-consumer
@@ -318,13 +250,7 @@
 - [ ] Send: `tx.send(value).await?`
 - [ ] Receive: `rx.recv().await`
 - [ ] **File:** `src/runtime/channels.rs`
-- [ ] **Implementation:** Define channel types from Architecture Section 7.3
-  ```rust
-  pub type PriceUpdateSender = broadcast::Sender<PriceUpdate>;
-  pub type PriceUpdateReceiver = broadcast::Receiver<PriceUpdate>;
-  pub type EntrySignalSender = mpsc::Sender<EntrySignal>;
-  pub type EntrySignalReceiver = mpsc::Receiver<EntrySignal>;
-  ```
+- [ ] **Implementation:** Define type aliases for PriceUpdateSender/Receiver (broadcast), EntrySignalSender/Receiver (mpsc)
 
 ### 3.8 Async Streams
 - [ ] Add `futures = "0.3"` to Cargo.toml
@@ -359,34 +285,14 @@
 - [ ] `Arc<T>` - Atomic reference counting (thread-safe)
 - [ ] `Weak<T>` - Break reference cycles
 - [ ] **File:** `src/runtime/supervisor.rs`
-- [ ] **Implementation:** Share KalshiClient across tasks with `Arc`
-  ```rust
-  let kalshi = Arc::new(KalshiClient::new(...).await?);
-  let kalshi_clone = kalshi.clone();
-  tokio::spawn(async move {
-      kalshi_clone.fetch_markets(...).await
-  });
-  ```
+- [ ] **Implementation:** Wrap KalshiClient in Arc, clone to share across spawned tasks
 
 ### 4.2 Interior Mutability
 - [ ] `RefCell<T>` - Runtime borrow checking (single-threaded)
 - [ ] `Mutex<T>` - Mutual exclusion (thread-safe)
 - [ ] `RwLock<T>` - Reader-writer lock (multiple readers OR one writer)
 - [ ] **File:** `src/trading/position_manager.rs`
-- [ ] **Implementation:** Shared position state from Architecture Section 6.3
-  ```rust
-  pub struct PositionManager {
-      positions: Arc<RwLock<HashMap<PositionId, Position>>>,
-      // ...
-  }
-
-  // Read positions (non-blocking for other readers)
-  let positions = self.positions.read().await;
-
-  // Write positions (exclusive lock)
-  let mut positions = self.positions.write().await;
-  positions.insert(position.id.clone(), position);
-  ```
+- [ ] **Implementation:** PositionManager with Arc<RwLock<HashMap<PositionId, Position>>> - use read() for queries, write() for updates
 
 ### 4.3 Send + Sync Traits
 - [ ] `Send` - Safe to move between threads
@@ -400,44 +306,20 @@
 - [ ] Tasks run concurrently on Tokio runtime
 - [ ] Return `JoinHandle<T>` to await task result
 - [ ] **File:** `src/runtime/supervisor.rs`
-- [ ] **Implementation:** Spawn 5 tasks from Architecture Section 7.1
-  ```rust
-  let ws_task = tokio::spawn(websocket_task(kalshi.clone(), price_tx));
-  let strategy_task = tokio::spawn(strategy_evaluation_task(...));
-  let position_task = tokio::spawn(position_monitoring_task(...));
-  let executor_task = tokio::spawn(order_execution_task(...));
-  let web_task = tokio::spawn(web_server_task(...));
-  ```
+- [ ] **Implementation:** Spawn 5 tasks (websocket, strategy, position, executor, web) and store JoinHandles
 
 ### 4.5 Select & Join
 - [ ] `tokio::select!` - Wait for first completion
 - [ ] `tokio::join!` - Wait for all to complete
 - [ ] **File:** `src/runtime/supervisor.rs`
-- [ ] **Implementation:**
-  ```rust
-  tokio::select! {
-      Ok(update) = price_rx.recv() => { /* handle price update */ }
-      _ = interval.tick() => { /* periodic check */ }
-  }
-  ```
+- [ ] **Implementation:** Use tokio::select! to handle either price updates or periodic interval ticks
 
 ### 4.6 Graceful Shutdown
 - [ ] `tokio::signal::ctrl_c().await` - Wait for Ctrl+C
 - [ ] Broadcast shutdown signal to all tasks
 - [ ] `tokio::select!` to listen for shutdown
 - [ ] **File:** `src/runtime/shutdown.rs`
-- [ ] **Implementation:**
-  ```rust
-  tokio::select! {
-      _ = shutdown_rx.recv() => {
-          // Clean shutdown
-          break;
-      }
-      result = do_work() => {
-          // Normal work
-      }
-  }
-  ```
+- [ ] **Implementation:** Use tokio::select! to handle shutdown signal or normal work, break loop on shutdown
 
 ### 4.7 Lazy Initialization
 - [ ] `std::sync::OnceLock` - Thread-safe lazy initialization
@@ -450,22 +332,7 @@
 - [ ] Single task owns mutable state
 - [ ] Other tasks send messages to request changes
 - [ ] **File:** `src/trading/order_executor.rs`
-- [ ] **Implementation:** Order executor as actor (Architecture Section 7.2, Task 4)
-  ```rust
-  async fn order_execution_task(
-      mut signal_rx: mpsc::Receiver<EntrySignal>,
-      mut exit_rx: mpsc::Receiver<ExitCommand>,
-      kalshi: Arc<KalshiClient>,
-      positions: Arc<RwLock<HashMap<PositionId, Position>>>,
-  ) -> Result<()> {
-      loop {
-          tokio::select! {
-              Some(signal) = signal_rx.recv() => { /* place entry order */ }
-              Some(exit_cmd) = exit_rx.recv() => { /* place exit order */ }
-          }
-      }
-  }
-  ```
+- [ ] **Implementation:** Order executor task receives EntrySignal and ExitCommand via channels, uses tokio::select! to handle both
 
 **Phase 4 Checkpoint:**
 - [ ] Can spawn multiple concurrent tasks
@@ -500,13 +367,7 @@
 - [ ] `FnOnce` - Consume captured values
 - [ ] `move` closures - Take ownership
 - [ ] **File:** `src/strategy/evaluator.rs`
-- [ ] **Implementation:**
-  ```rust
-  markets.into_iter()
-      .filter(|m| m.liquidity > min_liquidity)
-      .filter(|m| m.status == MarketStatus::Open)
-      .collect()
-  ```
+- [ ] **Implementation:** Use closures in iterator chains to filter markets by liquidity and status
 
 ### 5.4 Macros (Declarative)
 - [ ] `macro_rules!` basics
@@ -553,17 +414,7 @@
 - [ ] `info!()`, `warn!()`, `error!()` macros
 - [ ] Structured logging: `info!(position_id = %id, pnl = %pnl, "Position closed")`
 - [ ] **File:** `src/utils/logging.rs`
-- [ ] **Implementation:**
-  ```rust
-  pub fn init_logging() {
-      tracing_subscriber::fmt()
-          .with_target(false)
-          .with_thread_ids(true)
-          .with_file(true)
-          .with_line_number(true)
-          .init();
-  }
-  ```
+- [ ] **Implementation:** Initialize tracing_subscriber with fmt formatter, enable thread IDs, file names, line numbers
 
 ### 6.2 Configuration Management
 - [ ] Add `config = "0.13"`, `toml = "0.8"` to Cargo.toml
@@ -578,38 +429,14 @@
 - [ ] Execute SQL: `conn.execute("INSERT INTO ...", params![])?`
 - [ ] Query rows: `let mut stmt = conn.prepare("SELECT * FROM ...")?;`
 - [ ] **File:** `src/storage/sqlite.rs`
-- [ ] **Implementation:** SqliteDatabase from Architecture Section 11
-  ```rust
-  pub struct SqliteDatabase {
-      conn: Arc<Mutex<Connection>>,
-  }
-
-  impl SqliteDatabase {
-      pub async fn insert_trade(&self, trade: &Trade) -> Result<()> { ... }
-      pub async fn get_active_positions(&self) -> Result<Vec<Position>> { ... }
-  }
-  ```
+- [ ] **Implementation:** SqliteDatabase struct with Arc<Mutex<Connection>> - implement insert_trade, get_active_positions methods
 
 ### 6.4 CLI Argument Parsing (clap)
 - [ ] Add `clap = { version = "4.4", features = ["derive"] }` to Cargo.toml
 - [ ] `#[derive(Parser)]` for CLI struct
 - [ ] `#[command(subcommand)]` for subcommands
 - [ ] **File:** `src/main.rs`
-- [ ] **Implementation:** CLI from Architecture Section 16.3
-  ```rust
-  #[derive(Parser)]
-  struct Cli {
-      #[command(subcommand)]
-      command: Commands,
-  }
-
-  enum Commands {
-      Run { strategy: PathBuf, dry_run: bool },
-      Daemon { config: PathBuf, port: u16, mode: TradingMode },
-      CheckSimulation { db: PathBuf },
-      Export { output: PathBuf },
-  }
-  ```
+- [ ] **Implementation:** Cli struct with Commands enum - Run (strategy, dry_run), Daemon (config, port, mode), CheckSimulation (db), Export (output)
 
 ### 6.5 Error Context (anyhow)
 - [ ] `.context("Failed to fetch market")` for error wrapping
@@ -621,17 +448,7 @@
 - [ ] Integration tests in `tests/` directory
 - [ ] Mock Kalshi API with `wiremock` crate
 - [ ] **File:** `tests/integration/kalshi_client_test.rs`
-- [ ] **Implementation:**
-  ```rust
-  #[tokio::test]
-  async fn test_fetch_markets() {
-      let mock_server = MockServer::start().await;
-      // Mock HTTP responses
-      let client = KalshiClient::new_with_base_url(&mock_server.uri());
-      let markets = client.get_markets(...).await.unwrap();
-      assert_eq!(markets.len(), 1);
-  }
-  ```
+- [ ] **Implementation:** Use wiremock::MockServer to simulate Kalshi API responses, test KalshiClient methods
 
 ### 6.7 Profiling & Benchmarking
 - [ ] Add `criterion = "0.5"` to `[dev-dependencies]`
@@ -652,25 +469,7 @@
 - [ ] Shared state: `Extension<Arc<AppState>>`
 - [ ] WebSocket support: `axum::extract::ws::WebSocket`
 - [ ] **File:** `src/web/server.rs`
-- [ ] **Implementation:** Web server from Architecture Section 12.3
-  ```rust
-  pub async fn start_web_server(
-      port: u16,
-      positions: Arc<RwLock<HashMap<PositionId, Position>>>,
-  ) -> Result<()> {
-      let app = Router::new()
-          .route("/api/positions", get(get_positions))
-          .route("/api/trades", get(get_trades))
-          .route("/ws", get(websocket_handler))
-          .layer(Extension(positions));
-
-      axum::Server::bind(&format!("0.0.0.0:{}", port).parse()?)
-          .serve(app.into_make_service())
-          .await?;
-
-      Ok(())
-  }
-  ```
+- [ ] **Implementation:** Create Router with routes for /api/positions, /api/trades, /ws - add Extension layer for shared state - bind and serve
 
 ### 6.10 React Frontend
 - [ ] Set up Vite project in `frontend/`

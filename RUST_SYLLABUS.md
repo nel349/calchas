@@ -29,20 +29,20 @@
 **Milestone:** Load strategy JSON file and print parsed struct
 
 ### 1.1 Setup & Project Structure
-- [ ] Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-- [ ] Verify: `cargo --version`, `rustc --version`
-- [ ] Initialize project: `cd ~/Development/calchas && cargo init --name calchas`
-- [ ] Understand `Cargo.toml` (dependencies, workspace)
-- [ ] Understand `src/main.rs` vs `src/lib.rs`
-- [ ] **File:** Create initial `Cargo.toml` with serde, chrono, rust_decimal
+- [x] Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+- [x] Verify: `cargo --version`, `rustc --version`
+- [x] Initialize project: `cd ~/Development/calchas && cargo init --name calchas`
+- [x] Understand `Cargo.toml` (dependencies, workspace)
+- [x] Understand `src/main.rs` vs `src/lib.rs`
+- [x] **File:** Create initial `Cargo.toml` with serde, chrono, rust_decimal
 
 ### 1.2 Basic Programming Concepts
-- [ ] Variables: `let x = 5;`, `let mut y = 10;`
-- [ ] Scalar types: `i32`, `u64`, `f64`, `bool`, `char`
-- [ ] Functions: `fn calculate_profit_pct(entry: f64, exit: f64) -> f64`
+- [x] Variables: `let x = 5;`, `let mut y = 10;`
+- [x] Scalar types: `i32`, `u64`, `f64`, `bool`, `char`
+- [x] Functions: `fn calculate_profit_pct(entry: f64, exit: f64) -> f64`
 - [ ] Control flow: `if price < 20 { ... }`, `for market in markets { ... }`
-- [ ] **File:** Create `src/utils/mod.rs` and `src/utils/decimal.rs`
-- [ ] **Implementation:** Write helper functions (PnL calculation, percentage conversion)
+- [x] **File:** Create `src/utils/mod.rs` and `src/utils/decimal.rs`
+- [x] **Implementation:** Write helper functions (PnL calculation, percentage conversion)
 
 ### 1.3 Memory & Stack/Heap Concepts
 - [ ] Understand stack vs heap allocation
@@ -567,9 +567,9 @@
 4. **Reference architecture** - Each component references `TECHNICAL_ARCHITECTURE.md`
 5. **Code every day** - Consistency beats intensity
 
-**Current Phase:** _________
-**Current Component:** _________
-**Next Milestone:** _________
+**Current Phase:** Phase 1 - Foundation (Week 1)
+**Current Component:** Utility helpers (completed 1.1, 1.2)
+**Next Milestone:** Define core data models (Phase 1.5)
 
 ---
 

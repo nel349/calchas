@@ -13,3 +13,4 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Precise decimal math (no floats for money!)
 rust_decimal = { version = "1.33", features = ["serde"] }
+rust_decimal_macros = "1.33"

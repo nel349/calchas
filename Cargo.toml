@@ -22,6 +22,13 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
 
+# Configuration
+config = "0.15.19"
+dotenvy = "0.15"  # Load .env files
+
 [dev-dependencies]
 # Temporary files for testing
 tempfile = "3.8"
+
+# Serialize tests that modify global state (env vars)
+serial_test = "3.0"

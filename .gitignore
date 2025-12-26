@@ -1,5 +1,7 @@
 .claude/
 
+# Environment variables (contains secrets - never commit!)
+.env
 
 # Added by cargo
 

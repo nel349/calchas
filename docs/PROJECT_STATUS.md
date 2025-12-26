@@ -16,7 +16,7 @@
 | Decimal Utilities | ✅ Complete | `src/utils/decimal.rs` | PnL calculations, percentage helpers |
 | Kalshi Fee Module | ✅ Complete | `src/kalshi/fees.rs`, `docs/kalshi-fees.md` | Fee formulas, constants, documentation |
 | Logging Setup | ✅ Complete | `src/utils/logging.rs` | tracing with structured logging (2 tests) |
-| Config Loader | ❌ Not Started | `src/config/mod.rs` | Load TOML files, env vars (PRD Section 9) |
+| Config Loader | ✅ Complete | `src/config/mod.rs` | Load TOML files, env vars (6 tests) |
 | Core Data Models | ✅ Complete | `src/models/mod.rs` | All 5 models implemented with tests |
 | Market Model | ✅ Complete | `src/models/market.rs` | MarketId, Market, enums (5 tests) |
 | Strategy Model | ✅ Complete | `src/models/strategy.rs` | Strategy, filters, entry/exit rules (4 tests) |
@@ -25,7 +25,7 @@
 | Trade Model | ✅ Complete | `src/models/trade.rs` | Historical records, P&L calculations (8 tests) |
 | Strategy JSON Loader | ✅ Complete | `src/strategy/loader.rs` | Load/validate JSON strategies (6 tests) |
 
-**Phase 1 Milestone:** ✅ Load strategy JSON file and print parsed struct
+**Phase 1 Milestone:** ✅ COMPLETE - All components implemented and tested
 
 ---
 
@@ -115,8 +115,8 @@
 
 ## 📊 Overall Progress
 
-**Components Completed:** 10 / 40 (25%)
-**Phase 1 Progress:** 83% (10/12 components)
+**Components Completed:** 12 / 40 (30%)
+**Phase 1 Progress:** 100% (12/12 components) ✅ COMPLETE
 **Estimated Completion:** Week 14
 
 ---
@@ -138,9 +138,11 @@
 - [x] Structured logging with tracing
 - [x] Multiple log levels (trace, debug, info, warn, error)
 - [x] Timestamped logs with file/line numbers
+- [x] Configuration loading from TOML files
+- [x] Environment variable overrides (CALCHAS__SECTION__KEY)
+- [x] Config validation (paths exist, required fields present)
 
 ### ❌ What Doesn't Work Yet
-- [ ] Config loading from TOML files
 - [ ] Fetching markets from Kalshi API
 - [ ] Placing orders (simulation or live)
 - [ ] Managing positions
@@ -191,7 +193,7 @@
 
 **Phase 1 Done When:**
 - [x] Logging infrastructure initialized (tracing)
-- [ ] Config loader implemented (TOML files + env vars)
+- [x] Config loader implemented (TOML files + env vars)
 - [x] Can create Market/Strategy/Position/Order/Trade structs
 - [x] All data models match TECHNICAL_ARCHITECTURE.md Section 4
 - [x] Can load strategy JSON and parse into struct

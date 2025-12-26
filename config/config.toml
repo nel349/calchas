@@ -1,0 +1,55 @@
+# Calchas Configuration File
+# Phase 1: Minimal configuration for strategy loading
+# Future phases will add: [kalshi], [database], [web], [logging], [risk]
+
+# =============================================================================
+# RUNTIME CONFIGURATION
+# =============================================================================
+
+[runtime]
+# Directory containing strategy JSON files
+# Can be overridden with: CALCHAS__RUNTIME__STRATEGY_DIR
+strategy_dir = "strategies/"
+
+
+# =============================================================================
+# FUTURE CONFIGURATION (Phase 2+)
+# =============================================================================
+
+# Uncomment and configure when implementing Kalshi integration (Phase 2)
+# [kalshi]
+# use_demo = true  # true = demo API, false = production
+# api_base_url = "https://demo-api.kalshi.co/trade-api/v2"
+# websocket_url = "wss://demo-api.kalshi.co/trade-api/ws/v2"
+#
+# IMPORTANT: Set credentials via environment variables (NEVER commit to git):
+# - KALSHI_EMAIL=your-email@example.com
+# - KALSHI_PASSWORD=your-password
+
+# Uncomment when implementing runtime supervisor (Phase 4)
+# [runtime]
+# reload_strategies_interval_secs = 60  # Hot reload strategies every 60s
+# position_check_interval_secs = 5      # Check exit conditions every 5s
+
+# Uncomment when implementing database (Phase 5)
+# [database]
+# path = "data/calchas.db"
+# max_connections = 5
+
+# Uncomment when implementing web server (Phase 7)
+# [web]
+# host = "127.0.0.1"
+# port = 3000
+# serve_frontend = true
+# frontend_dir = "frontend/dist"
+
+# Uncomment for custom logging config (currently using RUST_LOG env var)
+# [logging]
+# level = "info"  # trace, debug, info, warn, error
+# format = "pretty"  # pretty or json
+# log_file = "logs/calchas.log"
+
+# Uncomment when implementing risk management (Phase 4)
+# [risk]
+# max_total_positions = 10
+# max_total_exposure_usd = 1000

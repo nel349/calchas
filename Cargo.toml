@@ -18,6 +18,10 @@ rust_decimal_macros = "1.33"
 # UUID generation
 uuid = { version = "1.6", features = ["v4", "serde"] }
 
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+
 [dev-dependencies]
 # Temporary files for testing
 tempfile = "3.8"

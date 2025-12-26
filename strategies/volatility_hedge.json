@@ -1,0 +1,36 @@
+{
+  "id": "volatility-hedge-v1",
+  "name": "Volatility Hedge",
+  "description": "Buy both Yes and No sides to profit from price movement in either direction",
+  "version": "1.0.0",
+  "enabled": true,
+  "filters": {
+    "categories": ["Sports", "Politics"],
+    "exclude_categories": null,
+    "min_price": "0.30",
+    "max_price": "0.70",
+    "min_volume": 5000,
+    "min_open_interest": 2000,
+    "min_time_to_event_hours": 1,
+    "max_time_to_event_hours": 12
+  },
+  "entry_rules": {
+    "side": "Both",
+    "position_size": 50,
+    "order_type": "Market",
+    "limit_price_offset": null
+  },
+  "exit_rules": {
+    "take_profit_pct": "20.0",
+    "stop_loss_pct": "15.0",
+    "trailing_stop_pct": "5.0",
+    "max_hold_time_hours": 6,
+    "exit_order_type": "Market"
+  },
+  "risk_limits": {
+    "max_concurrent_positions": 3,
+    "max_daily_loss_usd": "200.00",
+    "max_position_loss_usd": "100.00",
+    "loss_cooldown_minutes": 120
+  }
+}

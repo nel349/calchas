@@ -23,9 +23,9 @@
 | Position Model | ✅ Complete | `src/models/position.rs` | Position tracking, exit logic (6 tests) |
 | Order Model | ✅ Complete | `src/models/order.rs` | Order lifecycle, fill tracking (6 tests) |
 | Trade Model | ✅ Complete | `src/models/trade.rs` | Historical records, P&L calculations (8 tests) |
-| Strategy JSON Loader | ❌ Not Started | `src/strategy/loader.rs` | - |
+| Strategy JSON Loader | ✅ Complete | `src/strategy/loader.rs` | Load/validate JSON strategies (6 tests) |
 
-**Phase 1 Milestone:** ❌ Load strategy JSON file and print parsed struct
+**Phase 1 Milestone:** ✅ Load strategy JSON file and print parsed struct
 
 ---
 
@@ -115,8 +115,8 @@
 
 ## 📊 Overall Progress
 
-**Components Completed:** 8 / 40 (20%)
-**Phase 1 Progress:** 67% (8/12 components)
+**Components Completed:** 9 / 40 (23%)
+**Phase 1 Progress:** 75% (9/12 components)
 **Estimated Completion:** Week 14
 
 ---
@@ -132,11 +132,13 @@
 - [x] Exit logic (take profit, stop loss, trailing stop, time-based)
 - [x] Order lifecycle management (pending → filled → closed)
 - [x] Trade history records with performance metrics
+- [x] Load strategies from JSON files
+- [x] Validate strategy configuration
+- [x] Load all strategies from directory
 
 ### ❌ What Doesn't Work Yet
 - [ ] Logging infrastructure (tracing)
 - [ ] Config loading from TOML files
-- [ ] Loading strategy JSON files
 - [ ] Fetching markets from Kalshi API
 - [ ] Placing orders (simulation or live)
 - [ ] Managing positions
@@ -190,11 +192,11 @@
 - [ ] Config loader implemented (TOML files + env vars)
 - [x] Can create Market/Strategy/Position/Order/Trade structs
 - [x] All data models match TECHNICAL_ARCHITECTURE.md Section 4
-- [ ] Can load strategy JSON and parse into struct
-- [ ] Can print parsed strategy to console
+- [x] Can load strategy JSON and parse into struct
+- [x] Can print parsed strategy to console
 
 **Overall Project Done When:**
-- [ ] Can load strategy from JSON
+- [x] Can load strategy from JSON
 - [ ] Can fetch markets from Kalshi
 - [ ] Can evaluate markets against strategy
 - [ ] Can open/close positions automatically (simulation mode)

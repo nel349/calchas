@@ -1,0 +1,36 @@
+{
+  "id": "underdog-hunter-v1",
+  "name": "Underdog Hunter",
+  "description": "Buy cheap underdog contracts in sports markets and exit on momentum swings",
+  "version": "1.0.0",
+  "enabled": true,
+  "filters": {
+    "categories": ["Sports"],
+    "exclude_categories": null,
+    "min_price": "0.05",
+    "max_price": "0.20",
+    "min_volume": 1000,
+    "min_open_interest": null,
+    "min_time_to_event_hours": 2,
+    "max_time_to_event_hours": 48
+  },
+  "entry_rules": {
+    "side": "UnderdogOnly",
+    "position_size": 100,
+    "order_type": "Limit",
+    "limit_price_offset": "-0.01"
+  },
+  "exit_rules": {
+    "take_profit_pct": "50.0",
+    "stop_loss_pct": "30.0",
+    "trailing_stop_pct": null,
+    "max_hold_time_hours": 24,
+    "exit_order_type": "Market"
+  },
+  "risk_limits": {
+    "max_concurrent_positions": 5,
+    "max_daily_loss_usd": "100.00",
+    "max_position_loss_usd": "50.00",
+    "loss_cooldown_minutes": 60
+  }
+}

@@ -17,3 +17,7 @@ rust_decimal_macros = "1.33"
 
 # UUID generation
 uuid = { version = "1.6", features = ["v4", "serde"] }
+
+[dev-dependencies]
+# Temporary files for testing
+tempfile = "3.8"

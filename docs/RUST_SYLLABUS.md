@@ -40,18 +40,18 @@
 **Learn when building:** Core data models (Market, Strategy, Position, Order, Trade)
 
 ### Structs & Enums
-- [ ] Define structs with named fields
-- [ ] Implement methods in `impl` blocks
-- [ ] Derive traits: `#[derive(Debug, Clone, Serialize, Deserialize)]`
-- [ ] Enums with variants: `enum OrderStatus { Pending, Filled, ... }`
-- [ ] Pattern matching: `match order.status { ... }`
-- [ ] `Option<T>`: Represent optional values (`Some(x)`, `None`)
-- [ ] `Result<T, E>`: Represent success/failure
+- [x] Define structs with named fields
+- [x] Implement methods in `impl` blocks
+- [x] Derive traits: `#[derive(Debug, Clone, Serialize, Deserialize)]`
+- [x] Enums with variants: `enum OrderStatus { Pending, Filled, ... }`
+- [x] Pattern matching: `match order.status { ... }`
+- [x] `Option<T>`: Represent optional values (`Some(x)`, `None`)
+- [x] `Result<T, E>`: Represent success/failure
 
 ### Newtype Pattern
-- [ ] Type safety: `struct MarketId(String);`
-- [ ] Prevents mixing up IDs
-- [ ] Implement `Debug`, `Clone`, `PartialEq`, `Eq`, `Hash`
+- [x] Type safety: `struct MarketId(String);`
+- [x] Prevents mixing up IDs
+- [x] Implement `Debug`, `Clone`, `PartialEq`, `Eq`, `Hash`
 
 **Files:**
 - `src/models/market.rs` → MarketId, Market, MarketCategory, MarketStatus
@@ -68,14 +68,14 @@
 **Learn when building:** Strategy loader, business logic, utilities
 
 ### Error Handling
-- [ ] `Result<T, E>` propagation with `?` operator
-- [ ] Custom error enums: `enum CalchasError { ... }`
+- [x] `Result<T, E>` propagation with `?` operator
+- [x] Custom error enums: `enum LoaderError { ... }`
 - [ ] `thiserror` crate: `#[derive(Error)]`
 - [ ] `anyhow` for application errors
 - [ ] Error context: `.context("Failed to...")`
 
 ### Collections
-- [ ] `Vec<T>`: Growable array
+- [x] `Vec<T>`: Growable array
 - [ ] `HashMap<K, V>`: Key-value storage
 - [ ] `HashSet<T>`: Unique values
 
@@ -87,20 +87,20 @@
 - [ ] Chain iterator methods for data transformation
 
 ### File I/O
-- [ ] `std::fs::read_to_string()`: Read files
-- [ ] `std::path::Path`, `PathBuf`: File paths
-- [ ] `std::env::var()`: Environment variables
+- [x] `std::fs::read_to_string()`: Read files
+- [x] `std::path::Path`, `PathBuf`: File paths
+- [x] `std::env::var()`: Environment variables
 
 ### JSON Serialization (serde)
-- [ ] `#[derive(Serialize, Deserialize)]` on structs
-- [ ] `serde_json::from_str()`, `to_string_pretty()`
+- [x] `#[derive(Serialize, Deserialize)]` on structs
+- [x] `serde_json::from_str()`, `to_string_pretty()`
 - [ ] Customize: `#[serde(rename = "...")]`, `#[serde(default)]`
 
 ### Testing
-- [ ] `#[test]` attribute
-- [ ] `assert!`, `assert_eq!`, `assert_ne!`
-- [ ] `#[cfg(test)]` module
-- [ ] Run: `cargo test`
+- [x] `#[test]` attribute
+- [x] `assert!`, `assert_eq!`, `assert_ne!`
+- [x] `#[cfg(test)]` module
+- [x] Run: `cargo test`
 
 **Files:**
 - `src/strategy/loader.rs` → Load strategy JSON
@@ -239,9 +239,9 @@
 
 ### Logging (tracing)
 - [ ] `#[instrument]` macro
-- [ ] `info!()`, `warn!()`, `error!()` macros
-- [ ] Structured logging
-- [ ] Initialize `tracing_subscriber`
+- [x] `info!()`, `warn!()`, `error!()` macros
+- [x] Structured logging
+- [x] Initialize `tracing_subscriber`
 
 ### Configuration (config crate)
 - [ ] Load TOML files
@@ -272,8 +272,8 @@
 - [ ] `#[tokio::test]` for async tests
 
 ### Documentation
-- [ ] `///` doc comments
-- [ ] `//!` module-level docs
+- [x] `///` doc comments
+- [x] `//!` module-level docs
 - [ ] `cargo doc --open`
 
 **Files:**
@@ -302,10 +302,10 @@
 - [ ] Trait inheritance
 
 ### Modules & Visibility
-- [ ] `mod` keyword
-- [ ] `pub`, `pub(crate)`, `pub(super)`
-- [ ] File-based modules
-- [ ] Re-exports: `pub use`
+- [x] `mod` keyword
+- [x] `pub`, `pub(crate)`, `pub(super)`
+- [x] File-based modules
+- [x] Re-exports: `pub use`
 
 ### Type Aliases
 - [ ] `type Result<T> = std::result::Result<T, CalchasError>;`

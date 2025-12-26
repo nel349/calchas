@@ -4,7 +4,7 @@
 **Version:** 1.0
 **Date:** December 2025
 
-**For build progress, see:** `PROJECT_STATUS.md`
+**For build progress, see:** `PROJECT_STATUS.md` (this directory)
 
 ---
 
@@ -1284,4 +1284,4 @@ The PRD defines 3 strategy types - here's how they map to JSON:
 
 **End of Technical Architecture**
 
-For build progress and implementation roadmap, see: `PROJECT_STATUS.md`
+For build progress and implementation roadmap, see: `PROJECT_STATUS.md` (this directory)

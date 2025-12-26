@@ -9,14 +9,14 @@
 ### Core Documentation (SINGLE SOURCE OF TRUTH)
 
 **Product Requirements & Design (STATIC):**
-- `Calchas_PRD_v1.md` - Business requirements, success metrics, strategy types
-- `TECHNICAL_ARCHITECTURE.md` - Pure design spec - components, data models, how things work (NO roadmaps, NO tracking)
+- `docs/Calchas_PRD_v1.md` - Business requirements, success metrics, strategy types
+- `docs/TECHNICAL_ARCHITECTURE.md` - Pure design spec - components, data models, how things work (NO roadmaps, NO tracking)
 
 **Build Progress (DYNAMIC):**
-- `PROJECT_STATUS.md` - **THE ONLY BUILD TRACKER** - Component checklist, what works, what's next, phases, roadmap
+- `docs/PROJECT_STATUS.md` - **THE ONLY BUILD TRACKER** - Component checklist, what works, what's next, phases, roadmap
 
 **Learning Progress (DYNAMIC):**
-- `RUST_SYLLABUS.md` - Rust concepts mapped to Calchas components (just a learning aid)
+- `docs/RUST_SYLLABUS.md` - Rust concepts mapped to Calchas components (just a learning aid)
 
 ### Learning Resources
 - **Rust Principles:** `references/aspiring_rust_engineer.md` - Proper learning order (ownership before lifetimes, etc.)
@@ -31,10 +31,10 @@
 ## Development Guardrails
 
 ### Project Tracking (CRITICAL - SINGLE SOURCE OF TRUTH)
-1. **PROJECT_STATUS.md is THE ONLY build tracker** - Never add roadmaps/phases to TECHNICAL_ARCHITECTURE.md
-2. **UPDATE PROJECT_STATUS.md after every component** - Mark ✅, update "What Works" section
+1. **docs/PROJECT_STATUS.md is THE ONLY build tracker** - Never add roadmaps/phases to TECHNICAL_ARCHITECTURE.md
+2. **UPDATE docs/PROJECT_STATUS.md after every component** - Mark ✅, update "What Works" section
 3. **TodoWrite for current session tasks** - Track immediate work items only
-4. **RUST_SYLLABUS.md for learning progress** - Separate from product progress
+4. **docs/RUST_SYLLABUS.md for learning progress** - Separate from product progress
 
 ### Architecture Principles
 1. **No Mock Data** - Use real data or return "Not Implemented" (from Harbinger PRINCIPLES.md)
@@ -108,13 +108,13 @@
 - Strategy validation happens in **Phase 0** (post-engine, using simulation mode)
 - Focus on learning Rust and building quality infrastructure
 
-**See:** `TECHNICAL_ARCHITECTURE.md` Section 18 for full Phase 0 strategy validation process
+**See:** `docs/TECHNICAL_ARCHITECTURE.md` Section 16.4 for simulation mode and `docs/PROJECT_STATUS.md` for Phase 0 validation roadmap
 
 ---
 
 ## Current Status
 
-**See `PROJECT_STATUS.md` for all build progress and component status.**
+**See `docs/PROJECT_STATUS.md` for all build progress and component status.**
 
 ---
 
@@ -169,12 +169,12 @@
 
 ### When User Asks Questions
 1. Check if concept is already covered in checked-off syllabus items (assume they know it)
-2. Reference specific sections: "See TECHNICAL_ARCHITECTURE.md Section 6.3" or "See RUST_SYLLABUS.md Phase 3.4"
+2. Reference specific sections: "See docs/TECHNICAL_ARCHITECTURE.md Section 6.3" or "See docs/RUST_SYLLABUS.md Phase 3.4"
 3. For new concepts not yet covered, explain clearly with Calchas-specific examples
 
 ### When User is Coding
-1. Verify implementation matches `TECHNICAL_ARCHITECTURE.md` design
-2. Point out if they're skipping ahead in `RUST_SYLLABUS.md` (suggest proper order)
+1. Verify implementation matches `docs/TECHNICAL_ARCHITECTURE.md` design
+2. Point out if they're skipping ahead in `docs/RUST_SYLLABUS.md` (suggest proper order)
 3. Remind about principles: no mocks, no premature abstractions, type safety
 4. Test everything before marking syllabus checkbox as complete
 
@@ -182,7 +182,7 @@
 1. Check which phase they're on in syllabus
 2. Provide specific file/line references from architecture
 3. Offer Rust learning resources: The Book chapter, Tokio tutorial, etc.
-4. Give working code examples from TECHNICAL_ARCHITECTURE.md
+4. Give working code examples from docs/TECHNICAL_ARCHITECTURE.md
 
 ### When to Reference Harbinger
 - UI patterns (React components, WebSocket updates)

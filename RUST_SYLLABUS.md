@@ -40,24 +40,24 @@
 - [x] Variables: `let x = 5;`, `let mut y = 10;`
 - [x] Scalar types: `i32`, `u64`, `f64`, `bool`, `char`
 - [x] Functions: `fn calculate_profit_pct(entry: f64, exit: f64) -> f64`
-- [ ] Control flow: `if price < 20 { ... }`, `for market in markets { ... }`
+- [x] Control flow: `if price < 20 { ... }`, `for market in markets { ... }`
 - [x] **File:** Create `src/utils/mod.rs` and `src/utils/decimal.rs`
 - [x] **Implementation:** Write helper functions (PnL calculation, percentage conversion)
 
 ### 1.3 Memory & Stack/Heap Concepts
-- [ ] Understand stack vs heap allocation
-- [ ] Understand what happens when you do `let s = String::from("hello")`
-- [ ] Understand why primitives (i32) are on stack, String is on heap
-- [ ] **Mental Model:** Draw stack/heap diagram for Market struct
+- [x] Understand stack vs heap allocation
+- [x] Understand what happens when you do `let s = String::from("hello")`
+- [x] Understand why primitives (i32) are on stack, String is on heap
+- [x] **Mental Model:** Draw stack/heap diagram for Market struct
 
 ### 1.4 Ownership Basics
 > **Core Rust concept** - The real entry exam
-- [ ] Ownership rules: Each value has one owner, owner drops value when out of scope
-- [ ] Move semantics: `let s1 = String::from("hello"); let s2 = s1; // s1 invalid`
-- [ ] References and borrowing: `&market` (immutable), `&mut position` (mutable)
-- [ ] Borrow checker rules: One mutable OR many immutable references
-- [ ] **File:** `src/models/mod.rs`
-- [ ] **Implementation:** Pass Market structs between functions using references
+- [x] Ownership rules: Each value has one owner, owner drops value when out of scope
+- [x] Move semantics: `let s1 = String::from("hello"); let s2 = s1; // s1 invalid`
+- [x] References and borrowing: `&market` (immutable), `&mut position` (mutable)
+- [x] Borrow checker rules: One mutable OR many immutable references
+- [x] **File:** `src/models/mod.rs`
+- [x] **Implementation:** Pass Market structs between functions using references
 
 ### 1.5 Structs & Enums
 > **Data modeling before behavior** - Foundation of Calchas

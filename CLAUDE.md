@@ -6,10 +6,17 @@
 
 ## Key File References
 
-### Core Documentation
-- **Product Requirements:** `Calchas_PRD_v1.md` - Business requirements, success metrics, strategy types
-- **System Design:** `TECHNICAL_ARCHITECTURE.md` - Complete architecture, data models, concurrency model, database schema
-- **Learning Roadmap:** `RUST_SYLLABUS.md` - Rust concepts mapped to Calchas components, phase-by-phase checklist
+### Core Documentation (SINGLE SOURCE OF TRUTH)
+
+**Product Requirements & Design (STATIC):**
+- `Calchas_PRD_v1.md` - Business requirements, success metrics, strategy types
+- `TECHNICAL_ARCHITECTURE.md` - Pure design spec - components, data models, how things work (NO roadmaps, NO tracking)
+
+**Build Progress (DYNAMIC):**
+- `PROJECT_STATUS.md` - **THE ONLY BUILD TRACKER** - Component checklist, what works, what's next, phases, roadmap
+
+**Learning Progress (DYNAMIC):**
+- `RUST_SYLLABUS.md` - Rust concepts mapped to Calchas components (just a learning aid)
 
 ### Learning Resources
 - **Rust Principles:** `references/aspiring_rust_engineer.md` - Proper learning order (ownership before lifetimes, etc.)
@@ -22,6 +29,12 @@
 ---
 
 ## Development Guardrails
+
+### Project Tracking (CRITICAL - SINGLE SOURCE OF TRUTH)
+1. **PROJECT_STATUS.md is THE ONLY build tracker** - Never add roadmaps/phases to TECHNICAL_ARCHITECTURE.md
+2. **UPDATE PROJECT_STATUS.md after every component** - Mark ✅, update "What Works" section
+3. **TodoWrite for current session tasks** - Track immediate work items only
+4. **RUST_SYLLABUS.md for learning progress** - Separate from product progress
 
 ### Architecture Principles
 1. **No Mock Data** - Use real data or return "Not Implemented" (from Harbinger PRINCIPLES.md)
@@ -101,18 +114,7 @@
 
 ## Current Status
 
-**Phase:** Phase 1 - Foundation (Week 1)
-**Completed:**
-- ✅ 1.1 Setup & Project Structure (Rust installed, project initialized, dependencies configured)
-- ✅ 1.2 Basic Programming Concepts (utility helpers: PnL calculations, percentage conversions)
-
-**Next Up:** 1.3 Memory concepts → 1.5 Define core data models (Market, Position, Order, Strategy, Trade)
-
-**Next Milestone:** Load strategy JSON file and print parsed struct
-
-**Progress Tracking:** See `RUST_SYLLABUS.md` for detailed checklist
-
-**Strategy Validation:** Deferred to Phase 0 (post-implementation)
+**See `PROJECT_STATUS.md` for all build progress and component status.**
 
 ---
 

@@ -1,6 +1,7 @@
 // Declare modules
 mod utils;
 mod kalshi;
+pub mod models;  // pub so examples can use it
 
 // Import specific functions we want to use
 use rust_decimal::Decimal;

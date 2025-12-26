@@ -42,6 +42,9 @@ pub const FEE_CAP_PER_100_CONTRACTS: Decimal = dec!(1.75); // $1.75
 ///
 /// # Examples
 /// ```
+/// use rust_decimal_macros::dec;
+/// use calchas::kalshi::fees::calculate_kalshi_taker_fee;
+///
 /// // 100 contracts at 11¢
 /// let fee = calculate_kalshi_taker_fee(dec!(0.11), 100);
 /// // Returns: $0.6853
@@ -59,6 +62,9 @@ pub fn calculate_kalshi_taker_fee(price: Decimal, quantity: u64) -> Decimal {
 ///
 /// # Examples
 /// ```
+/// use rust_decimal_macros::dec;
+/// use calchas::kalshi::fees::calculate_kalshi_maker_fee;
+///
 /// // 100 contracts at 11¢
 /// let fee = calculate_kalshi_maker_fee(dec!(0.11), 100);
 /// // Returns: $0.1713
@@ -80,6 +86,9 @@ pub fn calculate_kalshi_maker_fee(price: Decimal, quantity: u64) -> Decimal {
 ///
 /// # Examples
 /// ```
+/// use rust_decimal_macros::dec;
+/// use calchas::kalshi::fees::calculate_round_trip_fees;
+///
 /// // Bought at 11¢, sold at 24¢, 100 contracts, using market orders
 /// let fees = calculate_round_trip_fees(dec!(0.11), dec!(0.24), 100, false);
 /// // Returns: $1.9621 (0.6853 + 1.2768)
@@ -111,6 +120,9 @@ pub fn calculate_round_trip_fees(
 ///
 /// # Examples
 /// ```
+/// use rust_decimal_macros::dec;
+/// use calchas::kalshi::fees::calculate_net_profit_usd;
+///
 /// // Bought at 11¢, sold at 24¢, 100 contracts
 /// let net = calculate_net_profit_usd(dec!(0.11), dec!(0.24), 100, false);
 /// // Gross profit: $13.00
@@ -137,6 +149,9 @@ pub fn calculate_net_profit_usd(
 ///
 /// # Examples
 /// ```
+/// use rust_decimal_macros::dec;
+/// use calchas::kalshi::fees::calculate_net_return_pct;
+///
 /// // Bought at 11¢, sold at 24¢, 100 contracts
 /// let net_return = calculate_net_return_pct(dec!(0.11), dec!(0.24), 100, false);
 /// // Entry cost: $11.00

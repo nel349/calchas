@@ -17,12 +17,12 @@
 | Kalshi Fee Module | ✅ Complete | `src/kalshi/fees.rs`, `docs/kalshi-fees.md` | Fee formulas, constants, documentation |
 | Logging Setup | ❌ Not Started | `src/utils/logging.rs` | tracing initialization (PRD MVP requirement) |
 | Config Loader | ❌ Not Started | `src/config/mod.rs` | Load TOML files, env vars (PRD Section 9) |
-| Core Data Models | 🚧 In Progress | `src/models/mod.rs` | Basic Market struct exists, need full models |
-| Market Model | ❌ Not Started | `src/models/market.rs` | - |
-| Strategy Model | ❌ Not Started | `src/models/strategy.rs` | - |
-| Position Model | ❌ Not Started | `src/models/position.rs` | - |
-| Order Model | ❌ Not Started | `src/models/order.rs` | - |
-| Trade Model | ❌ Not Started | `src/models/trade.rs` | - |
+| Core Data Models | ✅ Complete | `src/models/mod.rs` | All 5 models implemented with tests |
+| Market Model | ✅ Complete | `src/models/market.rs` | MarketId, Market, enums (5 tests) |
+| Strategy Model | ✅ Complete | `src/models/strategy.rs` | Strategy, filters, entry/exit rules (4 tests) |
+| Position Model | ✅ Complete | `src/models/position.rs` | Position tracking, exit logic (6 tests) |
+| Order Model | ✅ Complete | `src/models/order.rs` | Order lifecycle, fill tracking (6 tests) |
+| Trade Model | ✅ Complete | `src/models/trade.rs` | Historical records, P&L calculations (8 tests) |
 | Strategy JSON Loader | ❌ Not Started | `src/strategy/loader.rs` | - |
 
 **Phase 1 Milestone:** ❌ Load strategy JSON file and print parsed struct
@@ -115,8 +115,8 @@
 
 ## 📊 Overall Progress
 
-**Components Completed:** 3 / 40 (8%)
-**Phase 1 Progress:** 25% (3/12 components)
+**Components Completed:** 8 / 40 (20%)
+**Phase 1 Progress:** 67% (8/12 components)
 **Estimated Completion:** Week 14
 
 ---
@@ -127,7 +127,11 @@
 - [x] Decimal-based financial calculations (no floats)
 - [x] Kalshi fee calculations (taker/maker)
 - [x] Gross vs net profit calculations
-- [x] Basic Market struct with ownership patterns
+- [x] Complete data models (Market, Strategy, Position, Order, Trade)
+- [x] Position tracking with P&L calculations
+- [x] Exit logic (take profit, stop loss, trailing stop, time-based)
+- [x] Order lifecycle management (pending → filled → closed)
+- [x] Trade history records with performance metrics
 
 ### ❌ What Doesn't Work Yet
 - [ ] Logging infrastructure (tracing)
@@ -185,9 +189,9 @@
 - [ ] Logging infrastructure initialized (tracing)
 - [ ] Config loader implemented (TOML files + env vars)
 - [x] Can create Market/Strategy/Position/Order/Trade structs
+- [x] All data models match TECHNICAL_ARCHITECTURE.md Section 4
 - [ ] Can load strategy JSON and parse into struct
 - [ ] Can print parsed strategy to console
-- [ ] All data models match TECHNICAL_ARCHITECTURE.md Section 4
 
 **Overall Project Done When:**
 - [ ] Can load strategy from JSON

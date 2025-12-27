@@ -229,7 +229,7 @@ mod tests {
                 "max_time_to_event_hours": 24
             },
             "entry_rules": {
-                "side": "UnderdogOnly",
+                "side": "CheaperSide",
                 "position_size": 100,
                 "order_type": "Market",
                 "limit_price_offset": null

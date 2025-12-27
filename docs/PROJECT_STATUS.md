@@ -1,7 +1,7 @@
 # Calchas Project Status
 
-**Last Updated:** December 25, 2024
-**Current Phase:** Phase 1 - Foundation (Week 1-2)
+**Last Updated:** December 26, 2024
+**Current Phase:** Phase 3 - Strategy Engine (Week 5-6) ✅ COMPLETE
 
 ---
 
@@ -34,13 +34,15 @@
 
 | Component | Status | Files | Notes |
 |-----------|--------|-------|-------|
-| REST Client | ❌ Not Started | `src/platforms/kalshi/client.rs` | - |
-| Market Fetcher | ❌ Not Started | `src/platforms/kalshi/markets.rs` | - |
-| Order Placer | ❌ Not Started | `src/platforms/kalshi/orders.rs` | - |
-| Authentication | ❌ Not Started | `src/platforms/kalshi/auth.rs` | - |
-| Error Handling | ❌ Not Started | `src/platforms/kalshi/error.rs` | - |
+| Error Handling | ✅ Complete | `src/kalshi/error.rs` | 8 error variants, From impls (10 tests) |
+| Data Types | ✅ Complete | `src/kalshi/types.rs` | KalshiMarket, requests/responses, conversion to Market (13 tests) |
+| Authentication | ✅ Complete | `src/kalshi/auth.rs` | RSA-PSS signatures, PKCS#1/PKCS#8 support (11 tests) |
+| Retry Logic | ✅ Complete | `src/kalshi/retry.rs` | Exponential backoff, rate limit handling (13 tests) |
+| REST Client | ✅ Complete | `src/kalshi/client.rs` | HTTP client, pagination, get_markets (5 tests) |
+| Configuration | ✅ Complete | `src/config/mod.rs` | KalshiConfig with base_url, credentials |
+| Demo Example | ✅ Complete | `examples/fetch_markets.rs` | Phase 2 milestone demo |
 
-**Phase 2 Milestone:** ❌ Fetch markets from Kalshi API and print to console
+**Phase 2 Milestone:** ✅ COMPLETE - Fetch markets from Kalshi API and print to console
 
 ---
 
@@ -49,12 +51,14 @@
 
 | Component | Status | Files | Notes |
 |-----------|--------|-------|-------|
-| Market Aggregator | ❌ Not Started | `src/markets/aggregator.rs` | Unified data model across platforms (PRD Section 4.2) |
-| Strategy Evaluator | ❌ Not Started | `src/strategy/evaluator.rs` | - |
-| Filter Logic | ❌ Not Started | `src/strategy/filters.rs` | - |
-| Signal Generator | ❌ Not Started | `src/strategy/signals.rs` | - |
+| Signal Data Types | ✅ Complete | `src/strategy/signals.rs` | EntrySignal struct, SignalSide enum (13 tests) |
+| Strategy Evaluator | ✅ Complete | `src/strategy/evaluator.rs` | Market filtering, signal generation (32 tests) |
+| Filter Logic | ✅ Complete | `src/strategy/evaluator.rs` | Category, price, volume, open interest, time-to-event filters |
+| Signal Generator | ✅ Complete | `src/strategy/signals.rs` | Generate signals from matched markets |
+| Integration Tests | ✅ Complete | `tests/strategy_engine_integration.rs` | End-to-end strategy evaluation (5 tests) |
+| Demo Example | ✅ Complete | `examples/evaluate_markets.rs` | Phase 3 milestone demo |
 
-**Phase 3 Milestone:** ❌ Generate entry signals based on strategy JSON
+**Phase 3 Milestone:** ✅ COMPLETE - Generate entry signals based on strategy JSON
 
 ---
 
@@ -115,8 +119,10 @@
 
 ## 📊 Overall Progress
 
-**Components Completed:** 12 / 40 (30%)
+**Components Completed:** 25 / 42 (60%)
 **Phase 1 Progress:** 100% (12/12 components) ✅ COMPLETE
+**Phase 2 Progress:** 100% (7/7 components) ✅ COMPLETE
+**Phase 3 Progress:** 100% (6/6 components) ✅ COMPLETE
 **Estimated Completion:** Week 14
 
 ---
@@ -124,6 +130,8 @@
 ## 🔧 Working Features
 
 ### ✅ What Works Right Now
+
+**Phase 1 - Foundation:**
 - [x] Decimal-based financial calculations (no floats)
 - [x] Kalshi fee calculations (taker/maker)
 - [x] Gross vs net profit calculations
@@ -141,9 +149,32 @@
 - [x] Configuration loading from TOML files
 - [x] Environment variable overrides (CALCHAS__SECTION__KEY)
 - [x] Config validation (paths exist, required fields present)
+- [x] .env file support with dotenvy
+
+**Phase 2 - Kalshi API Integration:**
+- [x] RSA-PSS signature authentication (PKCS#1 and PKCS#8 formats)
+- [x] Fetch markets from Kalshi production API
+- [x] Automatic pagination for bulk market data
+- [x] Rate limit handling with exponential backoff
+- [x] Retry logic with server retry-after support
+- [x] Convert Kalshi markets to generic Market model
+- [x] Production and demo API environment support
+- [x] Comprehensive error handling (8 error types)
+
+**Phase 3 - Strategy Engine:**
+- [x] Filter markets by category (Sports, Politics, Economics, Weather, etc.)
+- [x] Filter markets by price range (cheaper side, expensive side, both)
+- [x] Filter markets by volume threshold
+- [x] Filter markets by open interest threshold
+- [x] Filter markets by time-to-event window
+- [x] Generate entry signals for matching markets
+- [x] Signal side determination (Yes/No based on strategy intent)
+- [x] Support for CheaperSide, ExpensiveSide, and Both entry strategies
+- [x] Market-agnostic terminology (works for all market types)
+- [x] 145 total unit tests passing (50 Phase 3 tests)
+- [x] 5 integration tests for end-to-end strategy evaluation
 
 ### ❌ What Doesn't Work Yet
-- [ ] Fetching markets from Kalshi API
 - [ ] Placing orders (simulation or live)
 - [ ] Managing positions
 - [ ] Storing data in database
@@ -168,24 +199,20 @@
 
 ## 🚀 Next Actions
 
-1. **Immediate (Today):**
-   - Setup logging infrastructure (tracing)
-   - Setup config loader (TOML files)
-   - Define Market struct with all fields
-   - Define Strategy struct with filters/rules
-   - Define Position struct
-   - Define Order struct
-   - Define Trade struct
+1. **Immediate (Now - Phase 4):**
+   - Implement simulation mode for paper trading
+   - Implement position manager (open/close positions)
+   - Implement order executor (simulation mode)
+   - Implement exit manager (take profit, stop loss, trailing stop, time-based)
+   - Implement risk manager (max concurrent positions, daily loss limits, cooldowns)
 
 2. **This Week:**
-   - Implement strategy JSON loader
-   - Test loading example strategy
-   - Complete Phase 1 milestone
+   - Complete Phase 4 milestone (open simulated position, hit exit target, close profitably)
 
 3. **Next Week:**
-   - Begin Kalshi API integration
-   - Implement REST client
-   - Test fetching markets
+   - Begin Phase 5 (SQLite database integration)
+   - Design database schema for positions, orders, trades
+   - Implement repository layer
 
 ---
 
@@ -199,10 +226,26 @@
 - [x] Can load strategy JSON and parse into struct
 - [x] Can print parsed strategy to console
 
+**Phase 2 Done When:**
+- [x] RSA-PSS authentication working
+- [x] Can fetch markets from Kalshi production API
+- [x] Pagination handling for bulk data
+- [x] Rate limit retry logic implemented
+- [x] Markets converted to generic Market model
+
+**Phase 3 Done When:**
+- [x] Can filter markets by category
+- [x] Can filter markets by price range
+- [x] Can filter markets by volume and open interest
+- [x] Can filter markets by time-to-event window
+- [x] Can generate entry signals for matching markets
+- [x] Signals contain all required data (market info, side, price, size, etc.)
+- [x] Integration test validates full flow
+
 **Overall Project Done When:**
-- [x] Can load strategy from JSON
-- [ ] Can fetch markets from Kalshi
-- [ ] Can evaluate markets against strategy
+- [x] Can load strategy from JSON ✅
+- [x] Can fetch markets from Kalshi ✅
+- [x] Can evaluate markets against strategy ✅
 - [ ] Can open/close positions automatically (simulation mode)
 - [ ] Can view positions in web dashboard
 - [ ] Can persist data across restarts
@@ -223,6 +266,9 @@ None yet - just getting started!
 - **Architecture compliance:** Every component matches TECHNICAL_ARCHITECTURE.md
 - **Learning-driven:** Building while learning Rust fundamentals
 - **Simulation-first:** All trading logic will be tested in simulation mode before live capital (PRD Section 2.4)
+- **Production-ready auth:** RSA-PSS signatures with both PKCS#1 and PKCS#8 key format support
+- **Real data:** Fetching live markets from Kalshi production API (https://api.elections.kalshi.com)
+- **No caching:** Always fetch fresh data for accurate trading decisions
 
 ---
 

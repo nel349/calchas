@@ -31,8 +31,8 @@ impl StrategyId {
 /// Which side of the market to enter
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntrySide {
-    UnderdogOnly,   // Buy cheap side only (< 50¢)
-    FavoriteOnly,   // Buy expensive side only (> 50¢)
+    CheaperSide,    // Buy cheaper side only (< 50¢)
+    ExpensiveSide,  // Buy expensive side only (> 50¢)
     Both,           // Trade both sides (volatility hedge)
 }
 
@@ -161,19 +161,19 @@ impl Strategy {
         self.entry_rules.position_size
     }
 
-    /// Check if we should enter on the underdog side
-    pub fn trades_underdogs(&self) -> bool {
+    /// Check if we should enter on the cheaper side
+    pub fn trades_cheaper_side(&self) -> bool {
         matches!(
             self.entry_rules.side,
-            EntrySide::UnderdogOnly | EntrySide::Both
+            EntrySide::CheaperSide | EntrySide::Both
         )
     }
 
-    /// Check if we should enter on the favorite side
-    pub fn trades_favorites(&self) -> bool {
+    /// Check if we should enter on the expensive side
+    pub fn trades_expensive_side(&self) -> bool {
         matches!(
             self.entry_rules.side,
-            EntrySide::FavoriteOnly | EntrySide::Both
+            EntrySide::ExpensiveSide | EntrySide::Both
         )
     }
 }
@@ -205,7 +205,7 @@ mod tests {
                 max_time_to_event_hours: Some(48),
             },
             entry_rules: EntryRules {
-                side: EntrySide::UnderdogOnly,
+                side: EntrySide::CheaperSide,
                 position_size: 100,
                 order_type: OrderType::Limit,
                 limit_price_offset: Some(dec!(-0.01)),
@@ -239,10 +239,10 @@ mod tests {
     }
 
     #[test]
-    fn test_trades_underdogs() {
+    fn test_trades_cheaper_side() {
         let strategy = create_test_strategy();
-        assert!(strategy.trades_underdogs());
-        assert!(!strategy.trades_favorites());
+        assert!(strategy.trades_cheaper_side());
+        assert!(!strategy.trades_expensive_side());
     }
 
     #[test]

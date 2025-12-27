@@ -15,7 +15,7 @@
     "max_time_to_event_hours": 48
   },
   "entry_rules": {
-    "side": "UnderdogOnly",
+    "side": "CheaperSide",
     "position_size": 100,
     "order_type": "Limit",
     "limit_price_offset": "-0.01"

@@ -1,6 +1,8 @@
 // Declare modules
 mod utils;
+mod config;
 mod kalshi;
+mod strategy;
 pub mod models;  // pub so examples can use it
 
 // Import specific functions we want to use

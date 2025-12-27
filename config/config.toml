@@ -1,6 +1,6 @@
 # Calchas Configuration File
-# Phase 1: Minimal configuration for strategy loading
-# Future phases will add: [kalshi], [database], [web], [logging], [risk]
+# Phase 1-2: Strategy loading + Kalshi API integration
+# Future phases will add: [database], [web], [logging], [risk]
 
 # =============================================================================
 # RUNTIME CONFIGURATION
@@ -13,18 +13,34 @@ strategy_dir = "strategies/"
 
 
 # =============================================================================
-# FUTURE CONFIGURATION (Phase 2+)
+# KALSHI API CONFIGURATION (Phase 2)
 # =============================================================================
 
-# Uncomment and configure when implementing Kalshi integration (Phase 2)
-# [kalshi]
-# use_demo = true  # true = demo API, false = production
-# api_base_url = "https://demo-api.kalshi.co/trade-api/v2"
-# websocket_url = "wss://demo-api.kalshi.co/trade-api/ws/v2"
+[kalshi]
+# Use demo API (true) or production API (false)
+# Can be overridden with: CALCHAS__KALSHI__USE_DEMO
+use_demo = true
+
+# API credentials MUST be set via environment variables (NEVER commit to git!)
+# Set these in .env file or shell:
 #
-# IMPORTANT: Set credentials via environment variables (NEVER commit to git):
-# - KALSHI_EMAIL=your-email@example.com
-# - KALSHI_PASSWORD=your-password
+# CALCHAS__KALSHI__API_KEY_ID=your-key-id-from-kalshi-dashboard
+# CALCHAS__KALSHI__PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIEow...\n-----END RSA PRIVATE KEY-----"
+#
+# Note: The private_key must be a PEM-encoded RSA key with newlines escaped as \n
+# Kalshi provides PKCS#1 format (-----BEGIN RSA PRIVATE KEY-----)
+# Both PKCS#1 and PKCS#8 formats are supported
+# Get your credentials from: https://demo.kalshi.com/account/api-keys (demo)
+#                        or: https://elections.kalshi.com/account/api-keys (production)
+
+# These fields are required but must come from environment variables for security
+api_key_id = ""      # Set via CALCHAS__KALSHI__API_KEY_ID
+private_key = ""     # Set via CALCHAS__KALSHI__PRIVATE_KEY
+
+
+# =============================================================================
+# FUTURE CONFIGURATION (Phase 3+)
+# =============================================================================
 
 # Uncomment when implementing runtime supervisor (Phase 4)
 # [runtime]

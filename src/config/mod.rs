@@ -79,10 +79,9 @@ impl From<ConfigError> for ConfigLoadError {
 // CONFIG STRUCTURES
 // =============================================================================
 
-/// Application configuration (Phase 1: minimal)
+/// Application configuration (Phase 1-2: basic + Kalshi API)
 ///
 /// This will be extended in later phases to include:
-/// - [kalshi] - API credentials (Phase 2)
 /// - [database] - SQLite settings (Phase 5)
 /// - [web] - Web server settings (Phase 7)
 /// - [logging] - Log configuration (currently using RUST_LOG env var)
@@ -91,6 +90,9 @@ impl From<ConfigError> for ConfigLoadError {
 pub struct AppConfig {
     /// Runtime configuration
     pub runtime: RuntimeConfig,
+
+    /// Kalshi API configuration (Phase 2)
+    pub kalshi: KalshiConfig,
 }
 
 /// Runtime configuration
@@ -99,6 +101,48 @@ pub struct RuntimeConfig {
     /// Directory containing strategy JSON files
     /// Can be overridden with: CALCHAS_RUNTIME__STRATEGY_DIR
     pub strategy_dir: String,
+}
+
+/// Kalshi API configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KalshiConfig {
+    /// Use demo API (true) or production API (false)
+    /// Can be overridden with: CALCHAS__KALSHI__USE_DEMO
+    #[serde(default = "default_use_demo")]
+    pub use_demo: bool,
+
+    /// API key ID from Kalshi dashboard
+    /// MUST be set via environment variable: CALCHAS__KALSHI__API_KEY_ID
+    /// Never commit this to version control!
+    pub api_key_id: String,
+
+    /// RSA private key in PEM format
+    /// MUST be set via environment variable: CALCHAS__KALSHI__PRIVATE_KEY
+    /// Never commit this to version control!
+    ///
+    /// Example format in .env file:
+    /// CALCHAS__KALSHI__PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEv...\n-----END PRIVATE KEY-----"
+    pub private_key: String,
+}
+
+/// Default value for use_demo (true for safety)
+fn default_use_demo() -> bool {
+    true
+}
+
+impl KalshiConfig {
+    /// Get the base URL for Kalshi API based on environment
+    ///
+    /// # Returns
+    /// * Demo API: `https://demo-api.kalshi.co/trade-api/v2`
+    /// * Production API: `https://api.elections.kalshi.com/trade-api/v2`
+    pub fn base_url(&self) -> &str {
+        if self.use_demo {
+            "https://demo-api.kalshi.co/trade-api/v2"
+        } else {
+            "https://api.elections.kalshi.com/trade-api/v2"
+        }
+    }
 }
 
 // =============================================================================
@@ -291,6 +335,11 @@ mod tests {
             r#"
 [runtime]
 strategy_dir = "{}"
+
+[kalshi]
+use_demo = true
+api_key_id = "test-key-id"
+private_key = "test-private-key"
 "#,
             strategy_dir
         );

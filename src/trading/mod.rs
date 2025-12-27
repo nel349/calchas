@@ -13,6 +13,7 @@ pub mod risk_manager;
 pub mod exit_manager;
 pub mod order_executor;
 pub mod position_manager;
+pub mod metrics_tracker;
 
 // Re-exports
 pub use error::TradingError;
@@ -21,3 +22,4 @@ pub use risk_manager::{RiskManager, RiskDecision, RejectionReason};
 pub use exit_manager::ExitManager;
 pub use order_executor::OrderExecutor;
 pub use position_manager::PositionManager;
+pub use metrics_tracker::{MetricsTracker, SimulationMetrics, ExitToLiveDecision, DailyRecord};

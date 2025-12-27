@@ -1,7 +1,7 @@
 # Calchas Project Status
 
-**Last Updated:** December 26, 2024
-**Current Phase:** Phase 3 - Strategy Engine (Week 5-6) ✅ COMPLETE
+**Last Updated:** December 27, 2024
+**Current Phase:** Phase 4 - Trading Logic (Week 7-8) 🚧 IN PROGRESS
 
 ---
 
@@ -71,17 +71,17 @@
 |-----------|--------|-------|-------|
 | Order Simulator | ✅ Complete | `src/trading/simulator.rs` | Simulates fills with real Kalshi prices (4 tests) |
 | Risk Manager | ✅ Complete | `src/trading/risk_manager.rs` | Enforces limits, tracks daily P&L, cooldowns (14 tests) |
-| Exit Manager | ❌ Not Started | `src/trading/exit_manager.rs` | Check exit conditions (TP, SL, trailing, time) |
-| Order Executor | ❌ Not Started | `src/trading/order_executor.rs` | Signal→Order conversion, execution |
-| Position Manager | ❌ Not Started | `src/trading/position_manager.rs` | Track positions, coordinate updates |
-| Metrics Tracker | ❌ Not Started | `src/trading/metrics_tracker.rs` | Track performance, exit-to-live validation |
+| Exit Manager | ✅ Complete | `src/trading/exit_manager.rs` | Check exit conditions with priority ordering (16 tests) |
+| Order Executor | ✅ Complete | `src/trading/order_executor.rs` | Signal→Order conversion, execution (15 tests) |
+| Position Manager | ✅ Complete | `src/trading/position_manager.rs` | Track positions, coordinate updates (7 tests) |
+| Metrics Tracker | ✅ Complete | `src/trading/metrics_tracker.rs` | Track performance, exit-to-live validation (24 tests) |
 | **MAIN APP** | ❌ Not Started | `src/main.rs` | **Supervisor + 4 tasks (Section 7.1)** |
 | **Channels** | ❌ Not Started | `src/runtime/channels.rs` | **Broadcast/MPSC setup (Section 7.3)** |
 | **Tasks** | ❌ Not Started | `src/runtime/tasks/` | **4 concurrent tasks (Section 7.2)** |
 
 **Phase 4 Milestone:** ❌ `cargo run` starts bot, opens position (simulated), hits exit, closes profitably
 
-**NEXT STEP:** Stop building isolated components. Build integrated application according to TECHNICAL_ARCHITECTURE.md Section 7.
+**NEXT STEP:** All 6 core trading components complete (80 tests passing). Now build runtime integration (channels + supervisor + tasks) per Section 7.
 
 ---
 
@@ -127,10 +127,11 @@
 
 ## 📊 Overall Progress
 
-**Components Completed:** 25 / 42 (60%)
+**Components Completed:** 29 / 42 (69%)
 **Phase 1 Progress:** 100% (12/12 components) ✅ COMPLETE
 **Phase 2 Progress:** 100% (7/7 components) ✅ COMPLETE
 **Phase 3 Progress:** 100% (6/6 components) ✅ COMPLETE
+**Phase 4 Progress:** 67% (6/9 components) 🚧 IN PROGRESS
 **Estimated Completion:** Week 14
 
 ---
@@ -182,9 +183,22 @@
 - [x] 145 total unit tests passing (50 Phase 3 tests)
 - [x] 5 integration tests for end-to-end strategy evaluation
 
+**Phase 4 - Trading Logic (Simulation Mode):**
+- [x] Simulate order fills using real Kalshi market prices (4 tests)
+- [x] Risk management with position limits and loss thresholds (14 tests)
+- [x] Exit condition monitoring (take profit, stop loss, trailing stop, max hold time) (16 tests)
+- [x] Signal→Order conversion with proper side mapping (15 tests)
+- [x] Position lifecycle management (open, update, close) (7 tests)
+- [x] Exit-to-live validation (7+ consecutive profitable days, net positive ROI) (24 tests)
+- [x] Daily performance tracking and metrics calculation
+- [x] Consecutive profitable day streak tracking
+- [x] Trade recording and historical analysis
+- [x] 80 total Phase 4 unit tests passing (4+14+16+15+7+24)
+
 ### ❌ What Doesn't Work Yet
-- [ ] Placing orders (simulation or live)
-- [ ] Managing positions
+- [ ] Integrated application (runtime supervisor and tasks)
+- [ ] Concurrent task orchestration with channels
+- [ ] Full end-to-end position lifecycle demo
 - [ ] Storing data in database
 - [ ] Web interface
 - [ ] Real-time updates
@@ -208,14 +222,14 @@
 ## 🚀 Next Actions
 
 1. **Immediate (Now - Phase 4):**
-   - Implement simulation mode for paper trading
-   - Implement position manager (open/close positions)
-   - Implement order executor (simulation mode)
-   - Implement exit manager (take profit, stop loss, trailing stop, time-based)
-   - Implement risk manager (max concurrent positions, daily loss limits, cooldowns)
+   - Build runtime/channels.rs (Section 7.3 - Broadcast/MPSC setup)
+   - Build runtime/supervisor.rs and tasks (Section 7.1-7.2 - 4 concurrent tasks)
+   - Wire everything in src/main.rs (integrated application)
+   - Create Phase 4 demo example (end-to-end position lifecycle)
 
 2. **This Week:**
    - Complete Phase 4 milestone (open simulated position, hit exit target, close profitably)
+   - Run `cargo run` to start bot in simulation mode
 
 3. **Next Week:**
    - Begin Phase 5 (SQLite database integration)
@@ -254,7 +268,8 @@
 - [x] Can load strategy from JSON ✅
 - [x] Can fetch markets from Kalshi ✅
 - [x] Can evaluate markets against strategy ✅
-- [ ] Can open/close positions automatically (simulation mode)
+- [x] Can open/close positions (simulation mode - components ready, need runtime integration) ✅
+- [ ] Can run integrated bot (`cargo run` end-to-end)
 - [ ] Can view positions in web dashboard
 - [ ] Can persist data across restarts
 - [ ] Passes simulation validation (PRD Section 2.4: 7+ consecutive profitable days, net positive)
@@ -277,6 +292,8 @@ None yet - just getting started!
 - **Production-ready auth:** RSA-PSS signatures with both PKCS#1 and PKCS#8 key format support
 - **Real data:** Fetching live markets from Kalshi production API (https://api.elections.kalshi.com)
 - **No caching:** Always fetch fresh data for accurate trading decisions
+- **Comprehensive testing:** 225 total tests passing (145 Phases 1-3 + 80 Phase 4)
+- **Exit-to-live validation:** Metrics tracker implements PRD Section 2.4 criteria (7+ consecutive profitable days, net positive ROI, max 15% single-day loss)
 
 ---
 

@@ -9,7 +9,9 @@
 
 pub mod error;
 pub mod simulator;
+pub mod risk_manager;
 
 // Re-exports
 pub use error::TradingError;
 pub use simulator::{OrderSimulator, SimulatedFill};
+pub use risk_manager::{RiskManager, RiskDecision, RejectionReason};

@@ -63,17 +63,25 @@
 ---
 
 ### Phase 4: Trading Logic (Weeks 7-8)
-**Goal:** Open positions and manage exits
+**Goal:** Build actual integrated bot application
+
+**CRITICAL:** Follow TECHNICAL_ARCHITECTURE.md Section 7 - The application architecture is ALREADY DESIGNED
 
 | Component | Status | Files | Notes |
 |-----------|--------|-------|-------|
-| Simulation Mode | ❌ Not Started | `src/trading/simulator.rs` | Paper trading, no real orders (PRD MVP requirement) |
-| Position Manager | ❌ Not Started | `src/trading/position_manager.rs` | - |
-| Order Executor | ❌ Not Started | `src/trading/order_executor.rs` | - |
-| Exit Manager | ❌ Not Started | `src/trading/exit_manager.rs` | - |
-| Risk Manager | ❌ Not Started | `src/trading/risk_manager.rs` | max_concurrent_positions, max_daily_loss, cooldowns (PRD Section 5.2) |
+| Order Simulator | ✅ Complete | `src/trading/simulator.rs` | Simulates fills with real Kalshi prices (4 tests) |
+| Risk Manager | ✅ Complete | `src/trading/risk_manager.rs` | Enforces limits, tracks daily P&L, cooldowns (14 tests) |
+| Exit Manager | ❌ Not Started | `src/trading/exit_manager.rs` | Check exit conditions (TP, SL, trailing, time) |
+| Order Executor | ❌ Not Started | `src/trading/order_executor.rs` | Signal→Order conversion, execution |
+| Position Manager | ❌ Not Started | `src/trading/position_manager.rs` | Track positions, coordinate updates |
+| Metrics Tracker | ❌ Not Started | `src/trading/metrics_tracker.rs` | Track performance, exit-to-live validation |
+| **MAIN APP** | ❌ Not Started | `src/main.rs` | **Supervisor + 4 tasks (Section 7.1)** |
+| **Channels** | ❌ Not Started | `src/runtime/channels.rs` | **Broadcast/MPSC setup (Section 7.3)** |
+| **Tasks** | ❌ Not Started | `src/runtime/tasks/` | **4 concurrent tasks (Section 7.2)** |
 
-**Phase 4 Milestone:** ❌ Open position (simulated), hit exit target, close profitably
+**Phase 4 Milestone:** ❌ `cargo run` starts bot, opens position (simulated), hits exit, closes profitably
+
+**NEXT STEP:** Stop building isolated components. Build integrated application according to TECHNICAL_ARCHITECTURE.md Section 7.
 
 ---
 

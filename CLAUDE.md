@@ -30,6 +30,13 @@
 
 ## Development Guardrails
 
+### CRITICAL - READ FIRST EVERY SESSION
+**BEFORE WRITING ANY CODE:**
+1. **Read CLAUDE.md** (this file) - Understand the project context
+2. **Read docs/TECHNICAL_ARCHITECTURE.md Section 7** - THE FULL APPLICATION DESIGN EXISTS
+3. **Read docs/PROJECT_STATUS.md** - What's done, what's next
+4. **NEVER build components in isolation** - Everything must integrate according to TECHNICAL_ARCHITECTURE.md Section 7
+
 ### Project Tracking (CRITICAL - SINGLE SOURCE OF TRUTH)
 1. **docs/PROJECT_STATUS.md is THE ONLY build tracker** - Never add roadmaps/phases to TECHNICAL_ARCHITECTURE.md
 2. **UPDATE docs/PROJECT_STATUS.md after every component** - Mark ✅, update "What Works" section
@@ -37,6 +44,11 @@
 4. **docs/RUST_SYLLABUS.md for learning progress** - Separate from product progress
 
 ### Architecture Principles
+**THE APPLICATION ARCHITECTURE IS ALREADY DESIGNED IN TECHNICAL_ARCHITECTURE.md:**
+- Section 7: Concurrency Model (4 tasks + channels)
+- Section 7.1: Main function flow (supervisor pattern)
+- Section 8: Complete data flow diagrams (entry/exit flows)
+- DO NOT invent new architectures - FOLLOW THE SPEC
 1. **No Mock Data** - Use real data or return "Not Implemented" (from Harbinger PRINCIPLES.md)
 2. **No Premature Abstractions** - Build real things first, extract patterns later
 3. **Simple Before Smart** - If-statements before ML models

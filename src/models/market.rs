@@ -39,13 +39,12 @@ pub enum MarketCategory {
 }
 
 /// Market status lifecycle
+/// These values match Kalshi API status field exactly
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MarketStatus {
-    PreLaunch,   // Market exists but not tradeable yet
-    Open,        // Actively trading
-    Closed,      // Trading ended, awaiting settlement
-    Settled,     // Outcome determined
-    Finalized,   // All payouts complete
+    Active,      // Actively trading (API: "active")
+    Determined,  // Trading ended, outcome determined (API: "determined")
+    Finalized,   // All payouts complete (API: "finalized")
 }
 
 // =============================================================================
@@ -85,7 +84,7 @@ pub struct Market {
 impl Market {
     /// Check if market is currently tradeable
     pub fn is_open(&self) -> bool {
-        matches!(self.status, MarketStatus::Open)
+        matches!(self.status, MarketStatus::Active)
     }
 
     /// Check if market has sufficient liquidity
@@ -125,7 +124,7 @@ mod tests {
             title: "Will it rain in NYC on Feb 11, 2024?".to_string(),
             category: MarketCategory::Weather,
             sub_category: Some("Precipitation".to_string()),
-            status: MarketStatus::Open,
+            status: MarketStatus::Active,
             yes_price: dec!(0.24),
             no_price: dec!(0.76),
             volume: 5000,

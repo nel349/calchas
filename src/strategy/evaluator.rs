@@ -341,7 +341,7 @@ mod tests {
             title: "Test Market".to_string(),
             category,
             sub_category: None,
-            status: crate::models::MarketStatus::Open,
+            status: crate::models::MarketStatus::Active,
             yes_price,
             no_price,
             volume: 1000,

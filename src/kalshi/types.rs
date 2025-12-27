@@ -145,11 +145,13 @@ pub struct KalshiMarket {
 impl From<KalshiMarket> for crate::models::Market {
     fn from(km: KalshiMarket) -> Self {
         // Convert Kalshi status to MarketStatus enum
+        // Real API values: "active", "determined", "finalized"
         let status = match km.status.as_str() {
-            "open" => crate::models::MarketStatus::Open,
-            "closed" => crate::models::MarketStatus::Closed,
-            "settled" => crate::models::MarketStatus::Settled,
-            _ => crate::models::MarketStatus::Closed,  // Default
+            "active" => crate::models::MarketStatus::Active,
+            "determined" => crate::models::MarketStatus::Determined,
+            "finalized" => crate::models::MarketStatus::Finalized,
+            // Unknown statuses default to Determined (conservative - not tradeable)
+            _ => crate::models::MarketStatus::Determined,
         };
 
         // Convert Kalshi category to MarketCategory enum
@@ -215,7 +217,7 @@ mod tests {
             open_time: Utc::now(),
             close_time: Utc::now(),
             expiration_time: Utc::now(),
-            status: "open".to_string(),
+            status: "active".to_string(),  // Real API value
             response_price_units: "usd_cent".to_string(),
             yes_bid: 45,   // 45 cents = $0.45
             yes_ask: 47,   // 47 cents = $0.47
@@ -237,7 +239,7 @@ mod tests {
     fn test_kalshi_market_creation() {
         let market = create_test_kalshi_market();
         assert_eq!(market.ticker, "TEST-MARKET-001");
-        assert_eq!(market.status, "open");
+        assert_eq!(market.status, "active");  // Real API value
         assert_eq!(market.yes_bid, 45);
         assert_eq!(market.volume, 10000);
     }
@@ -296,7 +298,7 @@ mod tests {
         assert_eq!(generic_market.category, crate::models::MarketCategory::Weather);
 
         // Check status mapping
-        assert_eq!(generic_market.status, crate::models::MarketStatus::Open);
+        assert_eq!(generic_market.status, crate::models::MarketStatus::Active);
     }
 
     #[test]
@@ -319,11 +321,12 @@ mod tests {
 
     #[test]
     fn test_status_conversion() {
+        // Test REAL API values found in production
         let test_cases = vec![
-            ("open", crate::models::MarketStatus::Open),
-            ("closed", crate::models::MarketStatus::Closed),
-            ("settled", crate::models::MarketStatus::Settled),
-            ("unknown", crate::models::MarketStatus::Closed),  // Default
+            ("active", crate::models::MarketStatus::Active),
+            ("determined", crate::models::MarketStatus::Determined),
+            ("finalized", crate::models::MarketStatus::Finalized),
+            ("unknown", crate::models::MarketStatus::Determined),  // Default (conservative)
         ];
 
         for (kalshi_status, expected_status) in test_cases {

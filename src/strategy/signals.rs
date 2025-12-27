@@ -258,7 +258,7 @@ mod tests {
             title: "Test Market Title".to_string(),
             category: MarketCategory::Sports,
             sub_category: Some("Test".to_string()),
-            status: MarketStatus::Open,
+            status: MarketStatus::Active,
             yes_price,
             no_price,
             volume: 1000,

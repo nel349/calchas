@@ -20,7 +20,7 @@ fn create_test_markets() -> Vec<Market> {
             title: "Will Kansas City Chiefs win Super Bowl?".to_string(),
             category: MarketCategory::Sports,
             sub_category: Some("NFL".to_string()),
-            status: MarketStatus::Open,
+            status: MarketStatus::Active,
             yes_price: dec!(0.15),  // Cheap - matches underdog_hunter filter
             no_price: dec!(0.85),
             volume: 5000,  // Above min_volume (1000)
@@ -37,7 +37,7 @@ fn create_test_markets() -> Vec<Market> {
             title: "Will Buffalo Bills lose?".to_string(),
             category: MarketCategory::Sports,
             sub_category: Some("NFL".to_string()),
-            status: MarketStatus::Open,
+            status: MarketStatus::Active,
             yes_price: dec!(0.75),  // Too expensive - outside price range
             no_price: dec!(0.25),  // This is cheap but strategy looks at Yes side for UnderdogOnly
             volume: 3000,
@@ -54,7 +54,7 @@ fn create_test_markets() -> Vec<Market> {
             title: "Will candidate win election?".to_string(),
             category: MarketCategory::Politics,
             sub_category: Some("Presidential".to_string()),
-            status: MarketStatus::Open,
+            status: MarketStatus::Active,
             yes_price: dec!(0.18),  // Would match price, but wrong category
             no_price: dec!(0.82),
             volume: 10000,
@@ -71,7 +71,7 @@ fn create_test_markets() -> Vec<Market> {
             title: "Will team win NHL game?".to_string(),
             category: MarketCategory::Sports,
             sub_category: Some("NHL".to_string()),
-            status: MarketStatus::Open,
+            status: MarketStatus::Active,
             yes_price: dec!(0.12),  // Good price
             no_price: dec!(0.88),
             volume: 500,  // Below min_volume (1000)
@@ -88,7 +88,7 @@ fn create_test_markets() -> Vec<Market> {
             title: "Will team win Super Bowl 2026?".to_string(),
             category: MarketCategory::Sports,
             sub_category: Some("NFL".to_string()),
-            status: MarketStatus::Open,
+            status: MarketStatus::Active,
             yes_price: dec!(0.14),
             no_price: dec!(0.86),
             volume: 2000,
@@ -157,7 +157,7 @@ fn test_no_signals_when_no_matches() {
             title: "Will it rain tomorrow?".to_string(),
             category: MarketCategory::Weather,  // Wrong category
             sub_category: None,
-            status: MarketStatus::Open,
+            status: MarketStatus::Active,
             yes_price: dec!(0.15),
             no_price: dec!(0.85),
             volume: 5000,
@@ -188,7 +188,7 @@ fn test_volatility_hedge_generates_two_signals() {
             title: "Will team win close game?".to_string(),
             category: MarketCategory::Sports,
             sub_category: Some("NFL".to_string()),
-            status: MarketStatus::Open,
+            status: MarketStatus::Active,
             yes_price: dec!(0.48),  // In range 0.30-0.70
             no_price: dec!(0.52),   // Both sides in range
             volume: 10000,  // Above min_volume (5000)

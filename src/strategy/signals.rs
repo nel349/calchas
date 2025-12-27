@@ -207,22 +207,22 @@ impl EntrySignal {
     /// # Returns
     ///
     /// A vector of (SignalSide, price) tuples:
-    /// - CheaperSide: 1 tuple for cheaper side
-    /// - ExpensiveSide: 1 tuple for expensive side
+    /// - CheaperSide: 1 tuple for cheaper side (if equal, picks Yes)
+    /// - ExpensiveSide: 1 tuple for expensive side (if equal, picks Yes)
     /// - Both: 2 tuples (Yes and No)
     fn determine_side(market: &Market, entry_side: &EntrySide) -> Vec<(SignalSide, Decimal)> {
         match entry_side {
             EntrySide::CheaperSide => {
-                // Buy the cheaper side
-                if market.yes_price < market.no_price {
+                // Buy the cheaper side (if equal, pick Yes for consistency)
+                if market.yes_price <= market.no_price {
                     vec![(SignalSide::Yes, market.yes_price)]
                 } else {
                     vec![(SignalSide::No, market.no_price)]
                 }
             }
             EntrySide::ExpensiveSide => {
-                // Buy the expensive side
-                if market.yes_price > market.no_price {
+                // Buy the expensive side (if equal, pick Yes for consistency)
+                if market.yes_price >= market.no_price {
                     vec![(SignalSide::Yes, market.yes_price)]
                 } else {
                     vec![(SignalSide::No, market.no_price)]
@@ -468,6 +468,30 @@ mod tests {
         assert_eq!(result[0].1, dec!(0.42));
         assert_eq!(result[1].0, SignalSide::No);
         assert_eq!(result[1].1, dec!(0.58));
+    }
+
+    #[test]
+    fn test_determine_side_cheaper_equal_prices() {
+        let market = create_test_market(dec!(0.50), dec!(0.50));
+
+        let result = EntrySignal::determine_side(&market, &EntrySide::CheaperSide);
+
+        // When equal, should pick Yes for consistency
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, SignalSide::Yes);
+        assert_eq!(result[0].1, dec!(0.50));
+    }
+
+    #[test]
+    fn test_determine_side_expensive_equal_prices() {
+        let market = create_test_market(dec!(0.50), dec!(0.50));
+
+        let result = EntrySignal::determine_side(&market, &EntrySide::ExpensiveSide);
+
+        // When equal, should pick Yes for consistency
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, SignalSide::Yes);
+        assert_eq!(result[0].1, dec!(0.50));
     }
 
     #[test]

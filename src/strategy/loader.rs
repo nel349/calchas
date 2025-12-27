@@ -139,11 +139,53 @@ impl StrategyLoader {
             }
         }
 
+        if let Some(ts) = strategy.exit_rules.trailing_stop_pct {
+            if ts <= rust_decimal::Decimal::ZERO || ts > rust_decimal::Decimal::from(100) {
+                return Err(LoaderError::ValidationError(
+                    format!("Trailing stop percentage must be between 0 and 100, got {}", ts)
+                ));
+            }
+        }
+
+        if let Some(max_hold) = strategy.exit_rules.max_hold_time_hours {
+            if max_hold == 0 {
+                return Err(LoaderError::ValidationError(
+                    "Max hold time must be greater than 0 hours".to_string()
+                ));
+            }
+        }
+
+        // Validate limit price offset if present
+        if let Some(offset) = strategy.entry_rules.limit_price_offset {
+            // Offset must be reasonable (within -0.99 to +0.99, since prices are 0-1)
+            if offset <= rust_decimal::Decimal::from(-1) || offset >= rust_decimal::Decimal::from(1) {
+                return Err(LoaderError::ValidationError(
+                    format!("Limit price offset must be between -1.00 and +1.00, got {}", offset)
+                ));
+            }
+        }
+
         // Check risk limits
         if strategy.risk_limits.max_concurrent_positions == 0 {
             return Err(LoaderError::ValidationError(
                 "Max concurrent positions must be greater than 0".to_string()
             ));
+        }
+
+        if let Some(max_daily_loss) = strategy.risk_limits.max_daily_loss_usd {
+            if max_daily_loss <= rust_decimal::Decimal::ZERO {
+                return Err(LoaderError::ValidationError(
+                    format!("Max daily loss must be positive, got {}", max_daily_loss)
+                ));
+            }
+        }
+
+        if let Some(max_position_loss) = strategy.risk_limits.max_position_loss_usd {
+            if max_position_loss <= rust_decimal::Decimal::ZERO {
+                return Err(LoaderError::ValidationError(
+                    format!("Max position loss must be positive, got {}", max_position_loss)
+                ));
+            }
         }
 
         Ok(())
@@ -344,5 +386,106 @@ mod tests {
         let strategies = StrategyLoader::load_all(temp_dir.path()).unwrap();
 
         assert_eq!(strategies.len(), 2);
+    }
+
+    #[test]
+    fn test_validate_negative_trailing_stop() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("negative_trailing.json");
+
+        let mut json = create_valid_strategy_json();
+        json = json.replace("\"trailing_stop_pct\": null", "\"trailing_stop_pct\": \"-10.0\"");
+
+        let mut file = fs::File::create(&file_path).unwrap();
+        file.write_all(json.as_bytes()).unwrap();
+
+        let result = StrategyLoader::load(&file_path);
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LoaderError::ValidationError(_)));
+    }
+
+    #[test]
+    fn test_validate_zero_max_hold_time() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("zero_hold.json");
+
+        let mut json = create_valid_strategy_json();
+        json = json.replace("\"max_hold_time_hours\": 12", "\"max_hold_time_hours\": 0");
+
+        let mut file = fs::File::create(&file_path).unwrap();
+        file.write_all(json.as_bytes()).unwrap();
+
+        let result = StrategyLoader::load(&file_path);
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LoaderError::ValidationError(_)));
+    }
+
+    #[test]
+    fn test_validate_negative_max_daily_loss() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("negative_daily_loss.json");
+
+        let mut json = create_valid_strategy_json();
+        json = json.replace("\"max_daily_loss_usd\": \"100.00\"", "\"max_daily_loss_usd\": \"-100.00\"");
+
+        let mut file = fs::File::create(&file_path).unwrap();
+        file.write_all(json.as_bytes()).unwrap();
+
+        let result = StrategyLoader::load(&file_path);
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LoaderError::ValidationError(_)));
+    }
+
+    #[test]
+    fn test_validate_negative_max_position_loss() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("negative_position_loss.json");
+
+        let mut json = create_valid_strategy_json();
+        json = json.replace("\"max_position_loss_usd\": null", "\"max_position_loss_usd\": \"-50.00\"");
+
+        let mut file = fs::File::create(&file_path).unwrap();
+        file.write_all(json.as_bytes()).unwrap();
+
+        let result = StrategyLoader::load(&file_path);
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LoaderError::ValidationError(_)));
+    }
+
+    #[test]
+    fn test_validate_invalid_limit_price_offset() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("invalid_offset.json");
+
+        let mut json = create_valid_strategy_json();
+        json = json.replace("\"limit_price_offset\": null", "\"limit_price_offset\": \"1.50\"");
+
+        let mut file = fs::File::create(&file_path).unwrap();
+        file.write_all(json.as_bytes()).unwrap();
+
+        let result = StrategyLoader::load(&file_path);
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LoaderError::ValidationError(_)));
+    }
+
+    #[test]
+    fn test_validate_valid_trailing_stop() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("valid_trailing.json");
+
+        let mut json = create_valid_strategy_json();
+        json = json.replace("\"trailing_stop_pct\": null", "\"trailing_stop_pct\": \"20.0\"");
+
+        let mut file = fs::File::create(&file_path).unwrap();
+        file.write_all(json.as_bytes()).unwrap();
+
+        let result = StrategyLoader::load(&file_path);
+
+        assert!(result.is_ok());
     }
 }

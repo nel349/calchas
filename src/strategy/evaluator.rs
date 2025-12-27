@@ -210,7 +210,7 @@ impl StrategyEvaluator {
     /// The price check depends on the entry side:
     /// - CheaperSide: check cheaper side price
     /// - ExpensiveSide: check expensive side price
-    /// - Both: at least one side must be in range
+    /// - Both: BOTH sides must be in range (since we'll trade both)
     fn matches_price(
         market: &Market,
         min_price: Option<Decimal>,
@@ -229,8 +229,9 @@ impl StrategyEvaluator {
             EntrySide::Both => vec![market.yes_price, market.no_price],
         };
 
-        // At least one price must be in range
-        prices_to_check.iter().any(|price| {
+        // For Both: ALL prices must be in range (we're trading both sides)
+        // For CheaperSide/ExpensiveSide: the single price must be in range
+        prices_to_check.iter().all(|price| {
             let above_min = min_price.map_or(true, |min| *price >= min);
             let below_max = max_price.map_or(true, |max| *price <= max);
             above_min && below_max
@@ -499,8 +500,35 @@ mod tests {
     fn test_matches_price_both_sides_one_in_range() {
         let market = create_test_market(MarketCategory::Sports, dec!(0.15), dec!(0.85));
 
-        // Yes side (0.15) is in range [0.10, 0.20]
+        // Yes side (0.15) is in range [0.10, 0.20], but No side (0.85) is NOT
+        // For Both: ALL sides must be in range
+        assert!(!StrategyEvaluator::matches_price(
+            &market,
+            Some(dec!(0.10)),
+            Some(dec!(0.20)),
+            &EntrySide::Both
+        ));
+    }
+
+    #[test]
+    fn test_matches_price_both_sides_both_in_range() {
+        let market = create_test_market(MarketCategory::Sports, dec!(0.15), dec!(0.18));
+
+        // Both Yes (0.15) and No (0.18) are in range [0.10, 0.20]
         assert!(StrategyEvaluator::matches_price(
+            &market,
+            Some(dec!(0.10)),
+            Some(dec!(0.20)),
+            &EntrySide::Both
+        ));
+    }
+
+    #[test]
+    fn test_matches_price_both_sides_neither_in_range() {
+        let market = create_test_market(MarketCategory::Sports, dec!(0.05), dec!(0.95));
+
+        // Neither side is in range [0.10, 0.20]
+        assert!(!StrategyEvaluator::matches_price(
             &market,
             Some(dec!(0.10)),
             Some(dec!(0.20)),

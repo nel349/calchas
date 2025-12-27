@@ -5,3 +5,4 @@ pub mod utils;
 pub mod kalshi;
 pub mod strategy;
 pub mod config;
+pub mod trading;

@@ -23,10 +23,10 @@
   },
   "exit_rules": {
     "take_profit_pct": "2",
-    "stop_loss_pct": "1",
+    "stop_loss_pct": null,
     "trailing_stop_pct": null,
     "trailing_stop_activation_pct": null,
-    "max_hold_time_minutes": 480,
+    "max_hold_time_minutes": null,
     "exit_order_type": "Market"
   },
   "risk_limits": {

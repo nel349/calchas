@@ -57,7 +57,11 @@ impl PriceTracker {
     /// Returns the percentage change for the YES side.
     /// Positive = price went up, Negative = price went down
     ///
-    /// Returns None if insufficient data available.
+    /// Returns None if insufficient data available (need at least 2 snapshots).
+    ///
+    /// **Cold-start behavior:** If we don't have the full lookback period yet,
+    /// uses the oldest available snapshot. This allows detecting hot markets
+    /// within seconds of startup (e.g., 2% move in 30 seconds is still valid momentum).
     pub fn calculate_momentum(
         &self,
         market_id: &MarketId,
@@ -65,18 +69,20 @@ impl PriceTracker {
     ) -> Option<Decimal> {
         let snapshots = self.snapshots.get(market_id)?;
 
-        if snapshots.is_empty() {
+        // Need at least 2 snapshots to calculate movement
+        if snapshots.len() < 2 {
             return None;
         }
 
         // Current price (newest snapshot)
         let current = &snapshots[0];
 
-        // Find snapshot from lookback_period ago
+        // Try to find snapshot from lookback_period ago
         let target_time = Utc::now() - lookback_period;
 
         let old_snapshot = snapshots.iter()
-            .find(|s| s.timestamp <= target_time)?;
+            .find(|s| s.timestamp <= target_time)
+            .or_else(|| snapshots.last())?; // Use oldest available if no match (cold-start)
 
         // Calculate percentage change: ((new - old) / old) * 100
         if old_snapshot.yes_price == Decimal::ZERO {
@@ -90,6 +96,13 @@ impl PriceTracker {
     }
 
     /// Check if a market has moved at least X% in the lookback period
+    ///
+    /// Returns `true` if the market has moved >= min_pct_change in the lookback period.
+    /// Returns `false` if no movement or insufficient data (< 2 snapshots).
+    ///
+    /// **Cold-start behavior:** Uses whatever data is available. If we only have
+    /// 30 seconds of data, checks if it moved X% in those 30 seconds. This allows
+    /// detecting hot markets within the first minute of startup.
     pub fn has_momentum(
         &self,
         market_id: &MarketId,
@@ -99,9 +112,8 @@ impl PriceTracker {
         if let Some(momentum) = self.calculate_momentum(market_id, lookback_period) {
             momentum.abs() >= min_pct_change
         } else {
-            // If we don't have enough data yet, allow the trade
-            // (don't filter out new markets we just discovered)
-            true
+            // Not enough data (< 2 snapshots) - can't determine momentum
+            false
         }
     }
 
@@ -285,14 +297,47 @@ mod tests {
         let tracker = PriceTracker::new();
         let market_id = MarketId::new("TEST-001".to_string());
 
-        // Should return true (allow) when no data available
+        // Should return false when no data available (can't determine momentum)
         let has_momentum = tracker.has_momentum(
             &market_id,
             dec!(2.0),
             Duration::hours(1),
         );
 
-        assert!(has_momentum);
+        assert!(!has_momentum);
+    }
+
+    #[test]
+    fn test_has_momentum_cold_start_uses_oldest_available() {
+        let mut tracker = PriceTracker::new();
+        let market_id = MarketId::new("TEST-001".to_string());
+
+        // Simulate cold start: only 30 seconds of data, but strategy wants 60 minutes
+        let now = Utc::now();
+        tracker.snapshots.insert(
+            market_id.clone(),
+            vec![
+                PriceSnapshot {
+                    yes_price: dec!(0.51),  // 2% gain in 30 seconds
+                    no_price: dec!(0.49),
+                    timestamp: now,
+                },
+                PriceSnapshot {
+                    yes_price: dec!(0.50),
+                    no_price: dec!(0.50),
+                    timestamp: now - Duration::seconds(30),  // Only 30 seconds ago
+                },
+            ]
+        );
+
+        // Strategy wants 2% over 60 minutes, but we only have 30 seconds of data
+        // Should use the oldest available (30 seconds) and detect the 2% move
+        let momentum = tracker.calculate_momentum(&market_id, Duration::hours(1));
+        assert!(momentum.is_some());
+        assert_eq!(momentum.unwrap(), dec!(2.0));  // 2% gain
+
+        // Should pass momentum filter
+        assert!(tracker.has_momentum(&market_id, dec!(2.0), Duration::hours(1)));
     }
 
     #[test]

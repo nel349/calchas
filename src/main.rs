@@ -87,6 +87,8 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
                             for market in &m {
                                 state.price_tracker.record_price(&market.id, market.yes_price, market.no_price);
                             }
+                            tracing::info!("📊 Recorded prices for {} markets, tracker now tracking {} markets",
+                                m.len(), state.price_tracker.market_count());
                             m
                         },
                         Err(e) => {

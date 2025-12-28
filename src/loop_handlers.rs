@@ -7,6 +7,7 @@ use crate::kalshi::{KalshiClient, GetMarketsRequest};
 use crate::models::{Market, ExitReason};
 use crate::strategy::signals::{EntrySignal, SignalSide};
 use crate::trading::{RiskDecision, TradingError, OrderbookProvider};
+use chrono::Utc;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::sync::Arc;
@@ -517,33 +518,58 @@ pub async fn update_and_check_positions(
         };
 
         let price_change = current_price - position.current_price;
-        let change_symbol = if price_change > rust_decimal::Decimal::ZERO {
-            "↑"
-        } else if price_change < rust_decimal::Decimal::ZERO {
-            "↓"
-        } else {
-            "→"
-        };
-
         let pnl_color = if updated_position.unrealized_pnl > rust_decimal::Decimal::ZERO {
             "+"
         } else {
             ""
         };
 
-        tracing::info!(
-            "  [{}/{}] {} | Entry ${:.2} {} ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2}",
-            side_str,
-            position.quantity,
-            market.ticker,
-            position.entry_price,
-            change_symbol,
-            current_price,
-            pnl_color,
-            updated_position.unrealized_pnl,
-            position.exit_target.take_profit_price.unwrap_or_default(),
-            position.exit_target.stop_loss_price.unwrap_or_default()
-        );
+        // Only show price change if it's meaningful (more than $0.01 difference)
+        let price_diff = (current_price - position.entry_price).abs();
+        let threshold = rust_decimal::Decimal::new(1, 2); // 0.01
+
+        if price_diff >= threshold {
+            // Color-code arrows: green for up, red for down
+            let (change_symbol, color_start, color_end) = if price_change > rust_decimal::Decimal::ZERO {
+                ("↑", "\x1b[32m", "\x1b[0m")  // Green
+            } else {
+                ("↓", "\x1b[31m", "\x1b[0m")  // Red
+            };
+
+            // Use println! for proper ANSI color rendering
+            // Add colored marker at end to highlight changed positions
+            println!(
+                "\x1b[36m{}\x1b[0m  [{}/{}] {} | Entry ${:.2} {}{}{} ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2} {}●{}",
+                Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ"),
+                side_str,
+                position.quantity,
+                market.ticker,
+                position.entry_price,
+                color_start,
+                change_symbol,
+                color_end,
+                current_price,
+                pnl_color,
+                updated_position.unrealized_pnl,
+                position.exit_target.take_profit_price.unwrap_or_default(),
+                position.exit_target.stop_loss_price.unwrap_or_default(),
+                color_start,
+                color_end
+            );
+        } else {
+            // Price hasn't changed meaningfully - no arrow
+            tracing::info!(
+                "  [{}/{}] {} | Entry ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2}",
+                side_str,
+                position.quantity,
+                market.ticker,
+                position.entry_price,
+                pnl_color,
+                updated_position.unrealized_pnl,
+                position.exit_target.take_profit_price.unwrap_or_default(),
+                position.exit_target.stop_loss_price.unwrap_or_default()
+            );
+        }
 
         // Always update the position in AppState with new price
         state.positions.insert(position_id.clone(), updated_position.clone());

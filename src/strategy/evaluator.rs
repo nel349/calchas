@@ -43,6 +43,17 @@ pub enum EvaluationError {
     InvalidStrategy(String),
 }
 
+/// Result of momentum check (for detailed filtering stats)
+#[derive(Debug, Clone, Copy)]
+enum MomentumCheckResult {
+    /// Momentum check passed
+    Pass,
+    /// No price data available (<2 snapshots)
+    NoData,
+    /// Has data but movement is insufficient
+    InsufficientMovement,
+}
+
 impl std::fmt::Display for EvaluationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -119,6 +130,8 @@ impl StrategyEvaluator {
         let mut rejected_open_interest = 0;
         let mut rejected_time_window = 0;
         let mut rejected_momentum = 0;
+        let mut rejected_momentum_no_data = 0;
+        let mut rejected_momentum_insufficient = 0;
         let total_markets = markets.len();
 
         // Filter markets and generate signals
@@ -150,14 +163,24 @@ impl StrategyEvaluator {
                     rejected_time_window += 1;
                     return false;
                 }
-                if !Self::matches_momentum(
+                let momentum_result = Self::check_momentum_detailed(
                     market,
                     strategy.filters.min_momentum_pct,
                     strategy.filters.momentum_lookback_minutes,
                     price_tracker,
-                ) {
-                    rejected_momentum += 1;
-                    return false;
+                );
+                match momentum_result {
+                    MomentumCheckResult::Pass => {},
+                    MomentumCheckResult::NoData => {
+                        rejected_momentum += 1;
+                        rejected_momentum_no_data += 1;
+                        return false;
+                    },
+                    MomentumCheckResult::InsufficientMovement => {
+                        rejected_momentum += 1;
+                        rejected_momentum_insufficient += 1;
+                        return false;
+                    },
                 }
                 true
             })
@@ -167,7 +190,7 @@ impl StrategyEvaluator {
         // Log filter rejection breakdown if no signals generated
         if signals.is_empty() && total_markets > 0 {
             tracing::warn!(
-                "Filter breakdown for {} ({} markets): category={}, price={}, volume={}, open_interest={}, time_window={}, momentum={}",
+                "Filter breakdown for {} ({} markets): category={}, price={}, volume={}, open_interest={}, time_window={}, momentum={} (no_data={}, insufficient={})",
                 strategy.name,
                 total_markets,
                 rejected_category,
@@ -175,7 +198,9 @@ impl StrategyEvaluator {
                 rejected_volume,
                 rejected_open_interest,
                 rejected_time_window,
-                rejected_momentum
+                rejected_momentum,
+                rejected_momentum_no_data,
+                rejected_momentum_insufficient
             );
         }
 
@@ -368,6 +393,43 @@ impl StrategyEvaluator {
         true
     }
 
+    /// Check momentum with detailed result (for filtering stats)
+    fn check_momentum_detailed(
+        market: &Market,
+        min_momentum_pct: Option<Decimal>,
+        lookback_minutes: Option<u32>,
+        price_tracker: Option<&PriceTracker>,
+    ) -> MomentumCheckResult {
+        // If no momentum filter configured, pass
+        if min_momentum_pct.is_none() || lookback_minutes.is_none() {
+            return MomentumCheckResult::Pass;
+        }
+
+        // If no price tracker provided, pass
+        let tracker = match price_tracker {
+            Some(t) => t,
+            None => return MomentumCheckResult::Pass,
+        };
+
+        let min_pct = min_momentum_pct.unwrap();
+        let lookback_mins = lookback_minutes.unwrap();
+        let lookback_duration = Duration::minutes(lookback_mins as i64);
+
+        // Calculate actual momentum
+        let actual_momentum = tracker.calculate_momentum(&market.id, lookback_duration);
+
+        match actual_momentum {
+            None => MomentumCheckResult::NoData,
+            Some(momentum_value) => {
+                if momentum_value.abs() >= min_pct {
+                    MomentumCheckResult::Pass
+                } else {
+                    MomentumCheckResult::InsufficientMovement
+                }
+            }
+        }
+    }
+
     /// Check if market has sufficient momentum (price movement)
     ///
     /// # Arguments
@@ -386,23 +448,10 @@ impl StrategyEvaluator {
         lookback_minutes: Option<u32>,
         price_tracker: Option<&PriceTracker>,
     ) -> bool {
-        // If no momentum filter configured, pass
-        if min_momentum_pct.is_none() || lookback_minutes.is_none() {
-            return true;
-        }
-
-        // If no price tracker provided, pass (allow the trade - no data yet)
-        let tracker = match price_tracker {
-            Some(t) => t,
-            None => return true,
-        };
-
-        let min_pct = min_momentum_pct.unwrap();
-        let lookback_mins = lookback_minutes.unwrap();
-        let lookback_duration = Duration::minutes(lookback_mins as i64);
-
-        // Check if market has moved enough
-        tracker.has_momentum(&market.id, min_pct, lookback_duration)
+        matches!(
+            Self::check_momentum_detailed(market, min_momentum_pct, lookback_minutes, price_tracker),
+            MomentumCheckResult::Pass
+        )
     }
 
     /// Validate strategy configuration for logical consistency

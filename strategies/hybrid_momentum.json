@@ -13,13 +13,13 @@
     "min_open_interest": 1000,
     "min_time_to_event_minutes": null,
     "max_time_to_event_minutes": null,
-    "min_momentum_pct": "2.0",
+    "min_momentum_pct": "0.5",
     "momentum_lookback_minutes": 60,
     "max_spread_cents": "0.05",
     "min_best_price_quantity": 50
   },
   "entry_rules": {
-    "side": "Yes",
+    "side": "Both",
     "position_size": 2,
     "position_size_unit": "Dollars",
     "order_type": "Market",

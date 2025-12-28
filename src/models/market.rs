@@ -109,6 +109,66 @@ impl Market {
 }
 
 // =============================================================================
+// ORDERBOOK STRUCTS
+// =============================================================================
+
+/// Single price level in the orderbook
+#[derive(Debug, Clone)]
+pub struct OrderbookLevel {
+    pub price: Decimal,    // Price in cents (0-100)
+    pub quantity: u64,     // Number of contracts available
+}
+
+/// Market orderbook showing liquidity at different price levels
+#[derive(Debug, Clone)]
+pub struct Orderbook {
+    pub market_id: MarketId,
+
+    /// YES side orders (sorted by price ascending - best ask first)
+    pub yes_asks: Vec<OrderbookLevel>,
+
+    /// NO side orders (sorted by price ascending - best ask first)
+    pub no_asks: Vec<OrderbookLevel>,
+}
+
+impl Orderbook {
+    /// Get best ask price for YES side
+    pub fn yes_best_ask(&self) -> Option<Decimal> {
+        self.yes_asks.first().map(|level| level.price)
+    }
+
+    /// Get best ask price for NO side
+    pub fn no_best_ask(&self) -> Option<Decimal> {
+        self.no_asks.first().map(|level| level.price)
+    }
+
+    /// Get quantity available at best YES ask
+    pub fn yes_best_ask_quantity(&self) -> u64 {
+        self.yes_asks.first().map(|level| level.quantity).unwrap_or(0)
+    }
+
+    /// Get quantity available at best NO ask
+    pub fn no_best_ask_quantity(&self) -> u64 {
+        self.no_asks.first().map(|level| level.quantity).unwrap_or(0)
+    }
+
+    /// Calculate spread (difference between YES and NO best asks)
+    /// Note: YES + NO prices should sum to ~1.00 in efficient markets
+    pub fn spread(&self) -> Option<Decimal> {
+        let yes_ask = self.yes_best_ask()?;
+        let no_ask = self.no_best_ask()?;
+
+        // Spread = how much more you pay than the "fair" price
+        // Fair price: YES = 1 - NO
+        // Example: YES ask = 0.55, NO ask = 0.48
+        // Implied YES from NO = 1 - 0.48 = 0.52
+        // Spread = 0.55 - 0.52 = 0.03 (3 cents of slippage)
+        let implied_yes = Decimal::ONE - no_ask;
+        Some((yes_ask - implied_yes).abs())
+    }
+}
+
+// =============================================================================
 // TESTS
 // =============================================================================
 

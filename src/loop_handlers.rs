@@ -5,37 +5,42 @@
 use crate::app_state::AppState;
 use crate::kalshi::{KalshiClient, GetMarketsRequest};
 use crate::models::{Market, ExitReason};
-use crate::strategy::signals::EntrySignal;
-use crate::trading::{RiskDecision, TradingError};
+use crate::strategy::signals::{EntrySignal, SignalSide};
+use crate::trading::{RiskDecision, TradingError, OrderbookProvider};
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use std::sync::Arc;
 
 /// Fetch active markets from Kalshi (for entry scanning when we have capacity)
 ///
-/// Paginates through markets in 7-day window to find opportunities.
-/// Fetches up to 5000 markets (5 pages) to ensure variety.
+/// Paginates through ALL active markets to maximize opportunities.
+/// Fetches up to 10 pages (10,000 markets) for maximum coverage.
 ///
 /// # Arguments
 ///
 /// * `kalshi_client` - Kalshi API client
+/// * `min_time_minutes` - Minimum time to event in minutes (from strategy config)
+/// * `max_time_minutes` - Maximum time to event in minutes (from strategy config)
 ///
 /// # Returns
 ///
 /// Vector of active markets
 pub async fn fetch_all_markets(
     kalshi_client: &Arc<KalshiClient>,
+    min_time_minutes: u32,
+    max_time_minutes: u32,
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     use chrono::Utc;
     let now = Utc::now();
     tracing::info!("Scanning markets at {}", now.format("%H:%M:%S"));
 
-    // Fetch markets closing in next 7 days
-    let min_close = now + chrono::Duration::minutes(30);
-    let max_close = now + chrono::Duration::days(7);
+    // Use strategy-configured time window
+    let min_close = now + chrono::Duration::minutes(min_time_minutes as i64);
+    let max_close = now + chrono::Duration::minutes(max_time_minutes as i64);
 
     let mut all_markets = Vec::new();
     let mut cursor: Option<String> = None;
-    let max_pages = 5;  // Fetch up to 5000 markets
+    let max_pages = 10;  // Fetch up to 10,000 markets for maximum coverage
     let mut page_count = 0;
 
     loop {
@@ -89,6 +94,8 @@ pub async fn fetch_all_markets(
 ///
 /// * `kalshi_client` - Kalshi API client
 /// * `market_ids` - Market IDs to fetch
+/// * `min_time_minutes` - Minimum time to event in minutes (from strategy config)
+/// * `max_time_minutes` - Maximum time to event in minutes (from strategy config)
 ///
 /// # Returns
 ///
@@ -96,15 +103,16 @@ pub async fn fetch_all_markets(
 pub async fn fetch_markets_by_ids(
     kalshi_client: &Arc<KalshiClient>,
     market_ids: &[crate::models::MarketId],
+    min_time_minutes: u32,
+    max_time_minutes: u32,
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     use chrono::Utc;
     let now = Utc::now();
     tracing::info!("Fetching {} position markets...", market_ids.len());
 
     // Use same time window as fetch_all_markets for consistency
-    // Markets close 30min+ from now, up to 7 days
-    let min_close = now + chrono::Duration::minutes(30);
-    let max_close = now + chrono::Duration::days(7);
+    let min_close = now + chrono::Duration::minutes(min_time_minutes as i64);
+    let max_close = now + chrono::Duration::minutes(max_time_minutes as i64);
 
     tracing::debug!("  Time window: {} to {}",
         min_close.format("%Y-%m-%d %H:%M"),
@@ -173,9 +181,11 @@ pub async fn fetch_markets_by_ids(
 
 /// Evaluate strategies against markets to generate entry signals
 ///
+/// Note: Prices are recorded in the main loop before calling this function.
+///
 /// # Arguments
 ///
-/// * `state` - Application state
+/// * `state` - Application state (read-only access)
 /// * `markets` - Markets to evaluate
 ///
 /// # Returns
@@ -196,7 +206,7 @@ pub fn evaluate_strategies(
     for strategy in state.strategies.values() {
         tracing::info!("Evaluating strategy: {} against {} markets", strategy.name, markets.len());
 
-        match crate::strategy::evaluator::StrategyEvaluator::evaluate(markets, strategy) {
+        match crate::strategy::evaluator::StrategyEvaluator::evaluate(markets, strategy, Some(&state.price_tracker)) {
             Ok(strategy_signals) => {
                 tracing::info!("  Generated {} signals from {}", strategy_signals.len(), strategy.name);
                 // Attach market data to each signal
@@ -216,7 +226,75 @@ pub fn evaluate_strategies(
     signal_market_pairs
 }
 
-/// Process an entry signal (risk check → execute → open position)
+/// Check orderbook for acceptable spread and liquidity
+///
+/// # Arguments
+///
+/// * `orderbook_provider` - Provider for fetching orderbook data
+/// * `signal` - Entry signal being evaluated
+/// * `max_spread` - Maximum spread in cents (optional)
+/// * `min_quantity` - Minimum liquidity required (optional)
+///
+/// # Returns
+///
+/// Ok(true) if orderbook passes checks or checks are disabled
+/// Ok(false) if orderbook fails checks
+async fn check_orderbook_acceptable(
+    orderbook_provider: &impl OrderbookProvider,
+    signal: &EntrySignal,
+    max_spread: Option<Decimal>,
+    min_quantity: Option<u64>,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    // If no orderbook filters configured, pass
+    if max_spread.is_none() && min_quantity.is_none() {
+        return Ok(true);
+    }
+
+    // Fetch orderbook
+    let orderbook = match orderbook_provider.get_orderbook(&signal.market_id).await? {
+        Some(ob) => ob,
+        None => {
+            tracing::warn!("  Orderbook not available for {}", signal.market_id.as_str());
+            return Ok(true); // Allow if orderbook unavailable (simulation fallback)
+        }
+    };
+
+    // Check spread
+    if let Some(max_spread_cents) = max_spread {
+        if let Some(spread) = orderbook.spread() {
+            if spread > max_spread_cents {
+                tracing::warn!(
+                    "  ✗ Spread too wide: ${:.2} > ${:.2}",
+                    spread,
+                    max_spread_cents
+                );
+                return Ok(false);
+            }
+        }
+    }
+
+    // Check liquidity (side-specific)
+    if let Some(min_qty) = min_quantity {
+        let available_quantity = match signal.side {
+            SignalSide::Yes => orderbook.yes_best_ask_quantity(),
+            SignalSide::No => orderbook.no_best_ask_quantity(),
+        };
+
+        if available_quantity < min_qty {
+            tracing::warn!(
+                "  ✗ Insufficient liquidity: {} contracts < {} required",
+                available_quantity,
+                min_qty
+            );
+            return Ok(false);
+        }
+    }
+
+    tracing::debug!("  ✓ Orderbook check passed for {}", signal.market_id.as_str());
+    Ok(true)
+}
+
+/// Process an entry signal (orderbook check → risk check → execute → open position)
 ///
 /// # Arguments
 ///
@@ -234,6 +312,19 @@ pub async fn process_entry_signal(
     let strategy = state.strategies.get(&signal.strategy_id)
         .ok_or("Strategy not found for signal")?;
 
+    // Orderbook check (if configured in strategy)
+    let orderbook_ok = check_orderbook_acceptable(
+        &state.orderbook_provider,
+        &signal,
+        strategy.filters.max_spread_cents,
+        strategy.filters.min_best_price_quantity,
+    ).await?;
+
+    if !orderbook_ok {
+        tracing::warn!("  Orderbook check failed for {}", signal.market_id.as_str());
+        return Ok(()); // Not an error, just rejected
+    }
+
     // Risk check
     let risk_decision = state.risk_manager.check_entry(&signal, &state.positions, strategy);
     match risk_decision {
@@ -245,7 +336,7 @@ pub async fn process_entry_signal(
             );
         }
         RiskDecision::Rejected(reason) => {
-            tracing::warn!(
+            tracing::debug!(
                 "✗ Risk check REJECTED for {} ({:?})",
                 signal.market_id.0,
                 reason

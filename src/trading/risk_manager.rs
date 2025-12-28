@@ -300,6 +300,10 @@ mod tests {
                 min_open_interest: None,
                 min_time_to_event_minutes: None,
                 max_time_to_event_minutes: None,
+                min_momentum_pct: None,
+                momentum_lookback_minutes: None,
+                max_spread_cents: None,
+                min_best_price_quantity: None,
             },
             entry_rules: crate::models::EntryRules {
                 side: EntrySide::CheaperSide,

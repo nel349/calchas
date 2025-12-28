@@ -12,7 +12,7 @@ use crate::strategy::loader::StrategyLoader;
 use crate::strategy::evaluator::StrategyEvaluator;
 use crate::trading::{
     OrderSimulator, RiskManager, ExitManager, OrderExecutor,
-    PositionManager, MetricsTracker,
+    PositionManager, MetricsTracker, PriceTracker, SimulatedOrderbookProvider,
 };
 use rust_decimal::Decimal;
 
@@ -58,6 +58,12 @@ pub struct AppState {
     /// Metrics tracker for simulation performance
     pub metrics_tracker: MetricsTracker,
 
+    /// Price tracker for momentum analysis
+    pub price_tracker: PriceTracker,
+
+    /// Orderbook provider for liquidity checks (simulated in Phase 4)
+    pub orderbook_provider: SimulatedOrderbookProvider,
+
     /// Starting capital for ROI calculations
     pub starting_capital: Decimal,
 
@@ -94,7 +100,7 @@ impl AppState {
         tracing::info!("✓ Loaded {} strategies ({} enabled)", strategies.len(), strategies.len());
 
         // Calculate time range configuration from all strategies
-        let time_range_config = Self::calculate_time_range(&strategies);
+        let time_range_config = Self::calculate_time_range(&strategies, &config);
 
         // Initialize trading components
         let strategy_evaluator = StrategyEvaluator;
@@ -117,6 +123,8 @@ impl AppState {
             .unwrap_or_else(|| Decimal::from(10000));
 
         let metrics_tracker = MetricsTracker::new(starting_capital);
+        let price_tracker = PriceTracker::new();
+        let orderbook_provider = SimulatedOrderbookProvider::new(kalshi_client.clone());
 
         tracing::info!("✓ All trading components initialized");
 
@@ -130,6 +138,8 @@ impl AppState {
             order_executor: order_executor_arc,
             position_manager,
             metrics_tracker,
+            price_tracker,
+            orderbook_provider,
             starting_capital,
             time_range_config,
         })
@@ -138,7 +148,15 @@ impl AppState {
     /// Calculate time range configuration from all strategies
     ///
     /// Finds the widest time window across all strategies and detects conflicts
-    fn calculate_time_range(strategies: &HashMap<StrategyId, Strategy>) -> TimeRangeConfig {
+    ///
+    /// # Arguments
+    ///
+    /// * `strategies` - Map of all loaded strategies
+    /// * `config` - Application config (provides defaults when strategy doesn't specify)
+    fn calculate_time_range(
+        strategies: &HashMap<StrategyId, Strategy>,
+        config: &AppConfig,
+    ) -> TimeRangeConfig {
         let mut min_time = u32::MAX;
         let mut max_time = 0u32;
         let mut strategy_ranges = Vec::new();
@@ -146,8 +164,10 @@ impl AppState {
         let mut max_values = std::collections::HashSet::new();
 
         for strategy in strategies.values() {
-            let strat_min = strategy.filters.min_time_to_event_minutes.unwrap_or(60);  // Default 1 hour
-            let strat_max = strategy.filters.max_time_to_event_minutes.unwrap_or(43200);  // Default 30 days
+            let strat_min = strategy.filters.min_time_to_event_minutes
+                .unwrap_or(config.runtime.default_min_time_minutes);
+            let strat_max = strategy.filters.max_time_to_event_minutes
+                .unwrap_or(config.runtime.default_max_time_minutes);
 
             min_time = min_time.min(strat_min);
             max_time = max_time.max(strat_max);
@@ -157,10 +177,10 @@ impl AppState {
             max_values.insert(strat_max);
         }
 
-        // Default to reasonable values if no strategies
+        // Default to config values if no strategies
         if strategies.is_empty() {
-            min_time = 60;  // 1 hour
-            max_time = 43200;  // 30 days
+            min_time = config.runtime.default_min_time_minutes;
+            max_time = config.runtime.default_max_time_minutes;
         }
 
         // Conflicts exist if strategies have different min or max values

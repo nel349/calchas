@@ -327,6 +327,13 @@ impl PositionManager {
         self.positions.get(position_id)
     }
 
+    /// Get mutable position by ID
+    ///
+    /// Returns mutable reference to position if it exists.
+    pub fn get_position_mut(&mut self, position_id: &PositionId) -> Option<&mut Position> {
+        self.positions.get_mut(position_id)
+    }
+
     /// Get total count of positions
     pub fn position_count(&self) -> usize {
         self.positions.len()

@@ -146,9 +146,17 @@ impl Position {
     pub fn update_price(&mut self, new_price: Decimal) {
         self.current_price = new_price;
 
-        // Calculate unrealized P&L
+        // Calculate gross P&L (price difference only)
         let price_diff = new_price - self.entry_price;
-        self.unrealized_pnl = price_diff * Decimal::from(self.quantity);
+        let gross_pnl = price_diff * Decimal::from(self.quantity);
+
+        // Calculate fees (use Kalshi's actual taker fee formula)
+        let entry_fees = crate::kalshi::fees::calculate_kalshi_taker_fee(self.entry_price, self.quantity);
+        let exit_fees = crate::kalshi::fees::calculate_kalshi_taker_fee(new_price, self.quantity);
+        let total_fees = entry_fees + exit_fees;
+
+        // Unrealized P&L = gross P&L - fees (what you'd actually get if you closed now)
+        self.unrealized_pnl = gross_pnl - total_fees;
 
         // Update peak P&L for trailing stops
         if self.unrealized_pnl > self.peak_pnl {
@@ -264,8 +272,14 @@ mod tests {
         position.update_price(dec!(0.15));
 
         assert_eq!(position.current_price, dec!(0.15));
-        assert_eq!(position.unrealized_pnl, dec!(4.00));  // (0.15 - 0.11) * 100
-        assert_eq!(position.peak_pnl, dec!(4.00));
+
+        // Unrealized P&L now includes fees:
+        // Gross P&L: (0.15 - 0.11) * 100 = $4.00
+        // Entry fees: 0.07 * 100 * 0.11 * (1 - 0.11) = 0.6853
+        // Exit fees: 0.07 * 100 * 0.15 * (1 - 0.15) = 0.8925
+        // Net P&L: 4.00 - 0.6853 - 0.8925 = 2.4222
+        assert_eq!(position.unrealized_pnl, dec!(2.4222));
+        assert_eq!(position.peak_pnl, dec!(2.4222));
     }
 
     #[test]

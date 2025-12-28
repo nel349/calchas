@@ -83,7 +83,7 @@ pub async fn fetch_all_markets(
 
 /// Fetch specific markets by ID (for updating existing positions)
 ///
-/// Uses the same 7-day window as scanning and filters client-side.
+/// Uses very broad time window and paginates to find position markets.
 ///
 /// # Arguments
 ///
@@ -99,33 +99,76 @@ pub async fn fetch_markets_by_ids(
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     use chrono::Utc;
     let now = Utc::now();
-    tracing::info!("Fetching {} position markets at {}", market_ids.len(), now.format("%H:%M:%S"));
+    tracing::info!("Fetching {} position markets...", market_ids.len());
 
-    // Use broad time window (positions could be in markets closing anytime)
+    // Use same time window as fetch_all_markets for consistency
+    // Markets close 30min+ from now, up to 7 days
     let min_close = now + chrono::Duration::minutes(30);
     let max_close = now + chrono::Duration::days(7);
 
-    let request = GetMarketsRequest {
-        limit: Some(1000),
-        cursor: None,
-        status: Some("open".to_string()),
-        series_ticker: None,
-        min_close_ts: Some(min_close.timestamp()),
-        max_close_ts: Some(max_close.timestamp()),
-    };
+    tracing::debug!("  Time window: {} to {}",
+        min_close.format("%Y-%m-%d %H:%M"),
+        max_close.format("%Y-%m-%d %H:%M")
+    );
 
-    let response = kalshi_client.get_markets(request).await?;
+    let market_id_set: std::collections::HashSet<_> = market_ids.iter().cloned().collect();
+    let mut found_markets = Vec::new();
+    let mut cursor: Option<String> = None;
+    let max_pages = 10;  // Search up to 10k markets
+    let mut page_count = 0;
 
-    // Filter to only our position markets
-    let market_id_set: std::collections::HashSet<_> = market_ids.iter().collect();
-    let found: Vec<Market> = response.markets
-        .into_iter()
-        .map(|km| Into::<Market>::into(km))
-        .filter(|m| market_id_set.contains(&m.id))
-        .collect();
+    loop {
+        let request = GetMarketsRequest {
+            limit: Some(1000),
+            cursor: cursor.clone(),
+            status: Some("open".to_string()),
+            series_ticker: None,
+            min_close_ts: Some(min_close.timestamp()),
+            max_close_ts: Some(max_close.timestamp()),
+        };
 
-    tracing::info!("  Found {}/{} position markets", found.len(), market_ids.len());
-    Ok(found)
+        let response = kalshi_client.get_markets(request).await?;
+
+        let total_in_batch = response.markets.len();
+        tracing::debug!("    Page {}: API returned {} markets", page_count + 1, total_in_batch);
+
+        // If API returns 0 markets, stop early
+        if total_in_batch == 0 {
+            tracing::warn!("    API returned 0 markets - time window might be wrong!");
+            break;
+        }
+
+        // Filter as we fetch
+        let batch: Vec<Market> = response.markets
+            .into_iter()
+            .map(|km| Into::<Market>::into(km))
+            .filter(|m| market_id_set.contains(&m.id))
+            .collect();
+
+        if !batch.is_empty() {
+            tracing::debug!("    -> Matched {} of our position markets!", batch.len());
+        }
+        found_markets.extend(batch);
+        page_count += 1;
+
+        // Stop if found all or hit limit
+        if found_markets.len() >= market_ids.len() || page_count >= max_pages {
+            break;
+        }
+
+        if let Some(next_cursor) = response.cursor {
+            if !next_cursor.is_empty() {
+                cursor = Some(next_cursor);
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    tracing::info!("  Found {}/{} position markets", found_markets.len(), market_ids.len());
+    Ok(found_markets)
 }
 
 /// Evaluate strategies against markets to generate entry signals
@@ -318,7 +361,10 @@ pub async fn update_and_check_positions(
         return Ok(());
     }
 
-    tracing::info!("--- Price Updates ({} positions) ---", state.positions.len());
+    tracing::info!("");
+    tracing::info!("╔═══════════════════════════════════════════════════════════════╗");
+    tracing::info!("║  POSITION UPDATES ({} active)                                   ", state.positions.len());
+    tracing::info!("╚═══════════════════════════════════════════════════════════════╝");
 
     // Build market lookup map for efficient price updates
     let market_map: std::collections::HashMap<_, _> = markets
@@ -328,8 +374,6 @@ pub async fn update_and_check_positions(
 
     // Get positions to check (need to collect to avoid borrow issues)
     let position_ids: Vec<_> = state.positions.keys().cloned().collect();
-
-    tracing::info!("Checking {} markets in market_map", market_map.len());
 
     for position_id in position_ids {
         // Get position (safely)
@@ -378,7 +422,7 @@ pub async fn update_and_check_positions(
 
         let side_str = match position.side {
             crate::models::PositionSide::Yes => "YES",
-            crate::models::PositionSide::No => "NO",
+            crate::models::PositionSide::No => "NO ",
         };
 
         let price_change = current_price - position.current_price;
@@ -387,20 +431,36 @@ pub async fn update_and_check_positions(
         } else if price_change < rust_decimal::Decimal::ZERO {
             "↓"
         } else {
-            "="
+            "→"
+        };
+
+        let pnl_color = if updated_position.unrealized_pnl > rust_decimal::Decimal::ZERO {
+            "+"
+        } else {
+            ""
         };
 
         tracing::info!(
-            "  {} ({}) Entry:${:.4} → Current:${:.4} {} = P&L:${:.2} (TP:${:.4}, SL:${:.4})",
-            market.ticker,
+            "  [{}/{}] {} | Entry ${:.2} {} ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2}",
             side_str,
+            position.quantity,
+            market.ticker,
             position.entry_price,
-            current_price,
             change_symbol,
+            current_price,
+            pnl_color,
             updated_position.unrealized_pnl,
             position.exit_target.take_profit_price.unwrap_or_default(),
             position.exit_target.stop_loss_price.unwrap_or_default()
         );
+
+        // Always update the position in AppState with new price
+        state.positions.insert(position_id.clone(), updated_position.clone());
+
+        // Also update in PositionManager (it has its own HashMap)
+        if let Some(pm_position) = state.position_manager.get_position_mut(&position_id) {
+            pm_position.update_price(updated_position.current_price);
+        }
 
         // Check if exit condition met
         if state.exit_manager.should_exit(&updated_position) {
@@ -423,9 +483,6 @@ pub async fn update_and_check_positions(
                     }
                 }
             }
-        } else {
-            // No exit, just update the position in state
-            state.positions.insert(position_id, updated_position);
         }
     }
 
@@ -473,11 +530,13 @@ pub fn print_status(state: &AppState) {
     let active_positions = state.positions.len();
     let metrics = state.metrics_tracker.calculate_metrics();
 
-    tracing::info!(
-        "═══ Status: {} open positions | {} trades completed | Win: {:.1}% | ROI: {:.2}% ═══",
+    tracing::info!("");
+    tracing::info!("═══════════════════════════════════════════════════════════════");
+    tracing::info!("  Positions: {} open | Trades: {} | Win Rate: {:.1}% | ROI: {:.2}%",
         active_positions,
         metrics.total_trades,
         metrics.win_rate,
         metrics.net_roi
     );
+    tracing::info!("═══════════════════════════════════════════════════════════════");
 }

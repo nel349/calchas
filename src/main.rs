@@ -1,94 +1,110 @@
-// Declare modules
-mod utils;
-mod config;
-mod kalshi;
-mod strategy;
-pub mod models;  // pub so examples can use it
+//! Calchas - Prediction Market Trading Bot
+//!
+//! Main entry point for the trading bot application.
 
-// Import specific functions we want to use
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
-use utils::decimal::{
-    calculate_return_pct,
-    calculate_profit_usd,
-};
-use kalshi::fees::{
-    calculate_round_trip_fees,
-    calculate_net_profit_usd,
-    calculate_net_return_pct,
+use std::time::Duration;
+use calchas::app_state::AppState;
+use calchas::config::AppConfig;
+use calchas::loop_handlers::{
+    fetch_active_markets, evaluate_strategies, process_entry_signal,
+    update_and_check_positions, print_status,
 };
 
-fn main() {
-    println!("🔮 Calchas - Prediction Market Trading Bot\n");
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_level(true)
+        .init();
 
-    // Test our utility functions with a real trade example
-    // Bought underdog at 11¢, sold at 24¢ (the proven trade from PRD)
-    let entry_price = dec!(0.11);   // 11 cents
-    let exit_price = dec!(0.24);    // 24 cents
-    let quantity = 100;             // 100 contracts
+    tracing::info!("🔮 Calchas - Prediction Market Trading Bot");
+    tracing::info!("Mode: SIMULATION (paper trading)");
+    tracing::info!("");
 
-    println!("📊 Trade Analysis:");
-    println!("   Entry: ${}", entry_price);
-    println!("   Exit:  ${}", exit_price);
-    println!("   Quantity: {} contracts", quantity);
-    println!("   Entry cost: ${:.2}", entry_price * Decimal::from(quantity));
-    println!();
+    // Load configuration (.env first, then config file)
+    tracing::info!("Loading configuration from .env and config/config.toml");
+    let config = AppConfig::load_with_env_default()?;
 
-    // Gross calculations (before fees)
-    let gross_return = calculate_return_pct(entry_price, exit_price);
-    let gross_profit = calculate_profit_usd(entry_price, exit_price, quantity);
+    // Initialize application state
+    let mut state = AppState::new(config).await?;
 
-    println!("💵 Gross Performance (before fees):");
-    println!("   Return: {:.2}%", gross_return);
-    println!("   Profit: ${:.2}", gross_profit);
-    println!();
+    tracing::info!("Starting trading loop (polling every 10 seconds)...");
+    tracing::info!("Press Ctrl+C to stop");
+    tracing::info!("");
 
-    // Fee calculations (using market orders = taker fees)
-    let fees_taker = calculate_round_trip_fees(entry_price, exit_price, quantity, false);
-    let net_profit_taker = calculate_net_profit_usd(entry_price, exit_price, quantity, false);
-    let net_return_taker = calculate_net_return_pct(entry_price, exit_price, quantity, false);
+    // Main trading loop
+    run_trading_loop(&mut state).await?;
 
-    println!("📉 Fees (Market Orders - Taker):");
-    println!("   Total fees: ${:.2}", fees_taker);
-    println!();
+    tracing::info!("");
+    tracing::info!("Shutting down gracefully...");
+    tracing::info!("Final metrics:");
+    print_status(&state);
 
-    println!("✅ Net Performance (after fees):");
-    println!("   Net profit: ${:.2}", net_profit_taker);
-    println!("   Net return: {:.2}%", net_return_taker);
-    println!();
+    Ok(())
+}
 
-    // Show difference between maker vs taker fees
-    let fees_maker = calculate_round_trip_fees(entry_price, exit_price, quantity, true);
-    let net_profit_maker = calculate_net_profit_usd(entry_price, exit_price, quantity, true);
-    let savings = fees_taker - fees_maker;
+/// Main trading loop
+///
+/// # Arguments
+///
+/// * `state` - Application state
+///
+/// # Returns
+///
+/// Ok(()) when loop exits (Ctrl+C)
+async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error::Error>> {
+    let mut interval = tokio::time::interval(Duration::from_secs(10));
+    let mut iteration = 0u64;
 
-    println!("💡 Tip: Using Limit Orders (Maker):");
-    println!("   Maker fees: ${:.2}", fees_maker);
-    println!("   Net profit: ${:.2}", net_profit_maker);
-    println!("   Savings: ${:.2} ({:.1}% less fees!)", savings, (savings / fees_taker) * dec!(100));
-    println!();
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                iteration += 1;
+                tracing::info!("=== ITERATION {} ===", iteration);
 
-    // Show fee behavior at extreme prices
-    println!("📐 Fee Formula Behavior (100 contracts):");
-    println!("   Price  | Taker Fee | Notes");
-    println!("   -------|-----------|---------------------------");
+                // 1. Fetch markets from Kalshi
+                let markets = match fetch_active_markets(&state.kalshi_client).await {
+                    Ok(m) => {
+                        tracing::info!("Fetched {} active markets", m.len());
+                        m
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to fetch markets: {}", e);
+                        continue;
+                    }
+                };
 
-    let test_prices = vec![
-        (dec!(0.01), "1¢ (very cheap)"),
-        (dec!(0.11), "11¢ (your entry)"),
-        (dec!(0.24), "24¢ (your exit)"),
-        (dec!(0.50), "50¢ (max fee point)"),
-        (dec!(0.75), "75¢ (expensive)"),
-        (dec!(0.99), "99¢ (nearly certain)"),
-    ];
+                // 2. Evaluate strategies
+                let signal_market_pairs = evaluate_strategies(state, &markets);
+                if !signal_market_pairs.is_empty() {
+                    tracing::info!("Generated {} entry signals", signal_market_pairs.len());
+                }
 
-    for (price, label) in test_prices {
-        let fee = calculate_round_trip_fees(price, price, 100, false) / dec!(2.0); // Single side
-        println!("   {}  | ${:<9.4} | {}", price, fee, label);
+                // 3. Process entry signals (limit to 1 for Phase 4 testing)
+                for (signal, _market) in signal_market_pairs.into_iter().take(1) {
+                    if let Err(e) = process_entry_signal(state, signal).await {
+                        tracing::error!("Failed to process entry signal: {}", e);
+                    }
+                }
+
+                // 4. Update position prices and check exits
+                if let Err(e) = update_and_check_positions(state, &markets).await {
+                    tracing::error!("Failed to update positions: {}", e);
+                }
+
+                // 5. Print status
+                print_status(state);
+
+                tracing::info!("");
+            }
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Shutdown signal received");
+                break;
+            }
+        }
     }
 
-    println!();
-    println!("   💰 Fee is highest at 50¢ (maximum uncertainty)");
-    println!("   💰 Fee approaches $0 as price → $0 or $1");
-    println!("   💰 Fee CAP: $1.75 per 100 contracts (never exceeds this)");
+    Ok(())
 }

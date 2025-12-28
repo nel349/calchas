@@ -167,6 +167,14 @@ impl KalshiClient {
             query_params.push(("series_ticker", series_ticker.clone()));
         }
 
+        if let Some(min_close_ts) = request.min_close_ts {
+            query_params.push(("min_close_ts", min_close_ts.to_string()));
+        }
+
+        if let Some(max_close_ts) = request.max_close_ts {
+            query_params.push(("max_close_ts", max_close_ts.to_string()));
+        }
+
         // Convert to &str references
         let query_params_ref: Vec<(&str, &str)> = query_params
             .iter()

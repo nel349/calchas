@@ -159,10 +159,10 @@ impl EntrySignal {
     pub fn from_market(market: &Market, strategy: &Strategy) -> Vec<EntrySignal> {
         let sides = Self::determine_side(market, &strategy.entry_rules.side);
 
-        // Calculate time to event in minutes
+        // Calculate time to close in minutes (not event time - see evaluator for explanation)
         let now = Utc::now();
-        let time_to_event = market.event_time.signed_duration_since(now);
-        let time_to_event_minutes = time_to_event.num_seconds() as f64 / 60.0;
+        let time_to_close = market.close_time.signed_duration_since(now);
+        let time_to_event_minutes = time_to_close.num_seconds() as f64 / 60.0;
 
         sides
             .into_iter()
@@ -420,13 +420,13 @@ mod tests {
     #[test]
     fn test_signal_time_to_event_calculation() {
         let mut market = create_test_market(dec!(0.30), dec!(0.70));
-        market.event_time = Utc::now() + Duration::hours(12);
+        market.close_time = Utc::now() + Duration::hours(12);
         let strategy = create_test_strategy(EntrySide::CheaperSide, 100);
 
         let signals = EntrySignal::from_market(&market, &strategy);
         let signal = &signals[0];
 
-        // Time to event should be approximately 12 hours (720 minutes)
+        // Time to close should be approximately 12 hours (720 minutes)
         // Allow some tolerance for execution time
         assert!(signal.time_to_event_minutes >= 719.0);
         assert!(signal.time_to_event_minutes <= 721.0);

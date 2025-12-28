@@ -6,7 +6,7 @@ use std::time::Duration;
 use calchas::app_state::AppState;
 use calchas::config::AppConfig;
 use calchas::loop_handlers::{
-    fetch_active_markets, evaluate_strategies, process_entry_signal,
+    fetch_all_markets, fetch_markets_by_ids, evaluate_strategies, process_entry_signal,
     update_and_check_positions, print_status,
 };
 
@@ -64,39 +64,68 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
                 iteration += 1;
                 tracing::info!("=== ITERATION {} ===", iteration);
 
-                // 1. Fetch markets from Kalshi (using time window from strategies)
-                let markets = match fetch_active_markets(
-                    &state.kalshi_client,
-                    state.time_range_config.min_time_to_event_minutes,
-                    state.time_range_config.max_time_to_event_minutes,
-                ).await {
-                    Ok(m) => {
-                        tracing::info!("Fetched {} active markets", m.len());
-                        m
+                // Get max concurrent positions from risk limits
+                let max_concurrent = state.strategies.values()
+                    .map(|s| s.risk_limits.max_concurrent_positions as usize)
+                    .max()
+                    .unwrap_or(5);
+
+                let current_positions = state.positions.len();
+                let has_capacity = current_positions < max_concurrent;
+
+                // 1. Fetch markets based on capacity
+                let markets = if has_capacity {
+                    // We have capacity - scan ALL markets for new opportunities
+                    tracing::info!("Position capacity: {}/{} - Scanning for entries", current_positions, max_concurrent);
+                    match fetch_all_markets(&state.kalshi_client).await {
+                        Ok(m) => m,
+                        Err(e) => {
+                            tracing::error!("Failed to scan markets: {}", e);
+                            continue;
+                        }
                     }
-                    Err(e) => {
-                        tracing::error!("Failed to fetch markets: {}", e);
+                } else {
+                    // At max capacity - only fetch markets for existing positions
+                    tracing::info!("Position capacity: {}/{} (FULL) - Updating positions only", current_positions, max_concurrent);
+                    let market_ids: Vec<_> = state.positions.values()
+                        .map(|p| p.market_id.clone())
+                        .collect();
+
+                    if market_ids.is_empty() {
+                        tracing::info!("No positions to update");
                         continue;
+                    }
+
+                    match fetch_markets_by_ids(&state.kalshi_client, &market_ids).await {
+                        Ok(m) => m,
+                        Err(e) => {
+                            tracing::error!("Failed to fetch position markets: {}", e);
+                            continue;
+                        }
                     }
                 };
 
-                // 2. Evaluate strategies
-                let signal_market_pairs = evaluate_strategies(state, &markets);
-                if !signal_market_pairs.is_empty() {
-                    tracing::info!("Generated {} entry signals", signal_market_pairs.len());
-                }
+                // 2. Evaluate strategies (only if we have capacity)
+                if has_capacity {
+                    let signal_market_pairs = evaluate_strategies(state, &markets);
+                    if !signal_market_pairs.is_empty() {
+                        tracing::info!("Generated {} entry signals", signal_market_pairs.len());
+                    }
 
-                // 3. Process entry signals
-                // Risk manager will prevent duplicates and enforce position limits
-                for (signal, _market) in signal_market_pairs {
-                    if let Err(e) = process_entry_signal(state, signal).await {
-                        tracing::error!("Failed to process entry signal: {}", e);
+                    // 3. Process entry signals
+                    // Risk manager will prevent duplicates and enforce position limits
+                    for (signal, _market) in signal_market_pairs {
+                        if let Err(e) = process_entry_signal(state, signal).await {
+                            tracing::error!("Failed to process entry signal: {}", e);
+                        }
                     }
                 }
 
-                // 4. Update position prices and check exits
-                if let Err(e) = update_and_check_positions(state, &markets).await {
-                    tracing::error!("Failed to update positions: {}", e);
+                // 4. Update position prices and check exits (ALWAYS)
+                if !state.positions.is_empty() {
+                    if let Err(e) = update_and_check_positions(state, &markets).await {
+                        tracing::error!("Failed to update positions: {}", e);
+                    }
                 }
 
                 // 5. Print status

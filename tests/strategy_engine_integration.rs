@@ -135,9 +135,9 @@ fn test_full_strategy_evaluation_flow() {
     assert_eq!(signal.side, calchas::strategy::SignalSide::Yes);
     assert_eq!(signal.recommended_price, dec!(0.15));
 
-    // Verify timing
-    assert!(signal.time_to_event_minutes >= 1434.0);  // 23.9 hours * 60
-    assert!(signal.time_to_event_minutes <= 1446.0);  // 24.1 hours * 60
+    // Verify timing (now using close_time which is 23 hours in the test data)
+    assert!(signal.time_to_event_minutes >= 1374.0);  // 22.9 hours * 60
+    assert!(signal.time_to_event_minutes <= 1386.0);  // 23.1 hours * 60
 
     // Verify market context
     assert_eq!(signal.market_volume, 5000);

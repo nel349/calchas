@@ -493,10 +493,8 @@ mod tests {
     // We use a mock OrderSimulator to avoid needing a real KalshiClient.
 
     mod integration {
-        use super::*;
         use std::sync::Arc;
         use crate::kalshi::client::KalshiClient;
-        use crate::trading::simulator::SimulatedFill;
 
         // Mock: Create a fake KalshiClient for testing
         // This doesn't actually make network calls

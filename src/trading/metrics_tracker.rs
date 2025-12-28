@@ -449,7 +449,7 @@ impl Default for MetricsTracker {
 mod tests {
     use super::*;
     use crate::models::{
-        ExitReason, MarketId, OrderId, PositionId, StrategyId, TradeId,
+        ExitReason, MarketId, OrderId, PositionId, StrategyId,
     };
     use chrono::{Duration as ChronoDuration, NaiveDate, TimeZone, Utc};
     use rust_decimal_macros::dec;

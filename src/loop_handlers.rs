@@ -10,58 +10,122 @@ use crate::trading::{RiskDecision, TradingError};
 use rust_decimal::prelude::ToPrimitive;
 use std::sync::Arc;
 
-/// Fetch active markets from Kalshi
+/// Fetch active markets from Kalshi (for entry scanning when we have capacity)
+///
+/// Paginates through markets in 7-day window to find opportunities.
+/// Fetches up to 5000 markets (5 pages) to ensure variety.
 ///
 /// # Arguments
 ///
 /// * `kalshi_client` - Kalshi API client
-/// * `min_minutes` - Minimum minutes until close
-/// * `max_minutes` - Maximum minutes until close
 ///
 /// # Returns
 ///
 /// Vector of active markets
-pub async fn fetch_active_markets(
+pub async fn fetch_all_markets(
     kalshi_client: &Arc<KalshiClient>,
-    min_minutes: u32,
-    max_minutes: u32,
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     use chrono::Utc;
-    let fetch_time = Utc::now();
-    tracing::info!("Fetching markets from Kalshi at {}", fetch_time.format("%H:%M:%S"));
+    let now = Utc::now();
+    tracing::info!("Scanning markets at {}", now.format("%H:%M:%S"));
 
-    // Calculate time window from strategy config (convert minutes to Duration)
-    let min_close_time = fetch_time + chrono::Duration::minutes(min_minutes as i64);
-    let max_close_time = fetch_time + chrono::Duration::minutes(max_minutes as i64);
+    // Fetch markets closing in next 7 days
+    let min_close = now + chrono::Duration::minutes(30);
+    let max_close = now + chrono::Duration::days(7);
 
-    tracing::info!(
-        "Time filter: markets closing between {} and {} ({}min-{}min window)",
-        min_close_time.format("%Y-%m-%d %H:%M"),
-        max_close_time.format("%Y-%m-%d %H:%M"),
-        min_minutes,
-        max_minutes
-    );
+    let mut all_markets = Vec::new();
+    let mut cursor: Option<String> = None;
+    let max_pages = 5;  // Fetch up to 5000 markets
+    let mut page_count = 0;
 
-    // Get markets with status="open" and closing within our time window
+    loop {
+        let request = GetMarketsRequest {
+            limit: Some(1000),
+            cursor: cursor.clone(),
+            status: Some("open".to_string()),
+            series_ticker: None,
+            min_close_ts: Some(min_close.timestamp()),
+            max_close_ts: Some(max_close.timestamp()),
+        };
+
+        let response = kalshi_client.get_markets(request).await?;
+
+        let batch: Vec<Market> = response.markets
+            .into_iter()
+            .map(|km| km.into())
+            .collect();
+
+        let batch_size = batch.len();
+        tracing::info!("  Page {}: {} markets", page_count + 1, batch_size);
+        all_markets.extend(batch);
+        page_count += 1;
+
+        // Stop conditions
+        if batch_size == 0 || page_count >= max_pages {
+            break;
+        }
+
+        // Get next cursor
+        if let Some(next_cursor) = response.cursor {
+            if !next_cursor.is_empty() {
+                cursor = Some(next_cursor);
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    tracing::info!("  Total: {} markets from {} pages", all_markets.len(), page_count);
+    Ok(all_markets)
+}
+
+/// Fetch specific markets by ID (for updating existing positions)
+///
+/// Uses the same 7-day window as scanning and filters client-side.
+///
+/// # Arguments
+///
+/// * `kalshi_client` - Kalshi API client
+/// * `market_ids` - Market IDs to fetch
+///
+/// # Returns
+///
+/// Vector of markets (may be smaller than input if some markets closed)
+pub async fn fetch_markets_by_ids(
+    kalshi_client: &Arc<KalshiClient>,
+    market_ids: &[crate::models::MarketId],
+) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
+    use chrono::Utc;
+    let now = Utc::now();
+    tracing::info!("Fetching {} position markets at {}", market_ids.len(), now.format("%H:%M:%S"));
+
+    // Use broad time window (positions could be in markets closing anytime)
+    let min_close = now + chrono::Duration::minutes(30);
+    let max_close = now + chrono::Duration::days(7);
+
     let request = GetMarketsRequest {
-        limit: Some(200),
+        limit: Some(1000),
         cursor: None,
         status: Some("open".to_string()),
         series_ticker: None,
-        min_close_ts: Some(min_close_time.timestamp()),
-        max_close_ts: Some(max_close_time.timestamp()),
+        min_close_ts: Some(min_close.timestamp()),
+        max_close_ts: Some(max_close.timestamp()),
     };
 
     let response = kalshi_client.get_markets(request).await?;
 
-    // Convert KalshiMarkets to Markets
-    let markets: Vec<Market> = response.markets
+    // Filter to only our position markets
+    let market_id_set: std::collections::HashSet<_> = market_ids.iter().collect();
+    let found: Vec<Market> = response.markets
         .into_iter()
-        .map(|km| km.into())
+        .map(|km| Into::<Market>::into(km))
+        .filter(|m| market_id_set.contains(&m.id))
         .collect();
 
-    tracing::info!("Fetched {} active markets from Kalshi", markets.len());
-    Ok(markets)
+    tracing::info!("  Found {}/{} position markets", found.len(), market_ids.len());
+    Ok(found)
 }
 
 /// Evaluate strategies against markets to generate entry signals
@@ -87,8 +151,11 @@ pub fn evaluate_strategies(
         .collect();
 
     for strategy in state.strategies.values() {
+        tracing::info!("Evaluating strategy: {} against {} markets", strategy.name, markets.len());
+
         match crate::strategy::evaluator::StrategyEvaluator::evaluate(markets, strategy) {
             Ok(strategy_signals) => {
+                tracing::info!("  Generated {} signals from {}", strategy_signals.len(), strategy.name);
                 // Attach market data to each signal
                 for signal in strategy_signals {
                     if let Some(market) = market_map.get(&signal.market_id) {
@@ -100,7 +167,9 @@ pub fn evaluate_strategies(
         }
     }
 
-    tracing::debug!("Generated {} entry signals", signal_market_pairs.len());
+    if signal_market_pairs.is_empty() {
+        tracing::warn!("⚠️  No signals generated from {} markets", markets.len());
+    }
     signal_market_pairs
 }
 
@@ -260,6 +329,8 @@ pub async fn update_and_check_positions(
     // Get positions to check (need to collect to avoid borrow issues)
     let position_ids: Vec<_> = state.positions.keys().cloned().collect();
 
+    tracing::info!("Checking {} markets in market_map", market_map.len());
+
     for position_id in position_ids {
         // Get position (safely)
         let position = match state.positions.get(&position_id) {
@@ -268,12 +339,14 @@ pub async fn update_and_check_positions(
         };
 
         // Find current market data
+        tracing::debug!("Looking for market {} in market_map", position.market_id.0);
         let market = match market_map.get(&position.market_id) {
             Some(m) => m,
             None => {
                 tracing::warn!(
-                    "Market {} not found in current data, skipping price update for position {}",
+                    "⚠️  Market {} not found in current data (map has {} markets), skipping price update for position {}",
                     position.market_id.0,
+                    market_map.len(),
                     position_id.0
                 );
                 continue;
@@ -287,6 +360,14 @@ pub async fn update_and_check_positions(
             crate::models::PositionSide::Yes => market.yes_price,  // Current Yes price
             crate::models::PositionSide::No => market.no_price,    // Current No price
         };
+
+        tracing::debug!(
+            "Market {} found - Entry: ${:.2}, Current: ${:.2}, Old position price: ${:.2}",
+            position.market_id.0,
+            position.entry_price,
+            current_price,
+            position.current_price
+        );
 
         // Update position with current price
         let updated_position = {
@@ -310,12 +391,15 @@ pub async fn update_and_check_positions(
         };
 
         tracing::info!(
-            "  {} ({}) @ ${:.2} {} (P&L: ${:.2})",
+            "  {} ({}) Entry:${:.4} → Current:${:.4} {} = P&L:${:.2} (TP:${:.4}, SL:${:.4})",
             market.ticker,
             side_str,
+            position.entry_price,
             current_price,
             change_symbol,
-            updated_position.unrealized_pnl
+            updated_position.unrealized_pnl,
+            position.exit_target.take_profit_price.unwrap_or_default(),
+            position.exit_target.stop_loss_price.unwrap_or_default()
         );
 
         // Check if exit condition met

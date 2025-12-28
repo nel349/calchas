@@ -173,7 +173,7 @@ impl StrategyEvaluator {
     }
 
     // =========================================================================
-    // PRIVATE FILTER FUNCTIONS
+    // FILTER FUNCTIONS (public for debugging)
     // =========================================================================
 
     /// Check if market's category matches include/exclude filters
@@ -182,7 +182,7 @@ impl StrategyEvaluator {
     /// - If exclude list exists and market is in it: false
     /// - If include list exists and market is NOT in it: false
     /// - Otherwise: true
-    fn matches_category(
+    pub fn matches_category(
         market: &Market,
         categories: &Option<Vec<MarketCategory>>,
         exclude_categories: &Option<Vec<MarketCategory>>,
@@ -211,7 +211,7 @@ impl StrategyEvaluator {
     /// - CheaperSide: check cheaper side price
     /// - ExpensiveSide: check expensive side price
     /// - Both: BOTH sides must be in range (since we'll trade both)
-    fn matches_price(
+    pub fn matches_price(
         market: &Market,
         min_price: Option<Decimal>,
         max_price: Option<Decimal>,
@@ -241,7 +241,7 @@ impl StrategyEvaluator {
     }
 
     /// Check if market has sufficient volume
-    fn matches_volume(market: &Market, min_volume: Option<u64>) -> bool {
+    pub fn matches_volume(market: &Market, min_volume: Option<u64>) -> bool {
         match min_volume {
             None => true,
             Some(min) => market.volume >= min,
@@ -249,27 +249,31 @@ impl StrategyEvaluator {
     }
 
     /// Check if market has sufficient open interest
-    fn matches_open_interest(market: &Market, min_oi: Option<u64>) -> bool {
+    pub fn matches_open_interest(market: &Market, min_oi: Option<u64>) -> bool {
         match min_oi {
             None => true,
             Some(min) => market.open_interest >= min,
         }
     }
 
-    /// Check if market's event is within the acceptable time window
+    /// Check if market's close time is within the acceptable time window
     ///
-    /// Calculates minutes until event and checks if it's within [min, max] bounds.
-    /// Markets with past events (negative duration) are rejected.
-    fn matches_time_to_event(
+    /// Calculates minutes until market closes and checks if it's within [min, max] bounds.
+    /// Markets that are already closed (negative duration) are rejected.
+    ///
+    /// Note: We use close_time (when trading ends) not event_time (when event happens)
+    /// because that's what the Kalshi API supports for filtering, and it's more relevant
+    /// for trading (we care about how much time we have to trade, not when the event occurs).
+    pub fn matches_time_to_event(
         market: &Market,
         min_minutes: Option<u32>,
         max_minutes: Option<u32>,
     ) -> bool {
         let now = Utc::now();
-        let time_to_event = market.event_time.signed_duration_since(now);
-        let minutes = time_to_event.num_seconds() as f64 / 60.0;
+        let time_to_close = market.close_time.signed_duration_since(now);
+        let minutes = time_to_close.num_seconds() as f64 / 60.0;
 
-        // Reject past events (negative minutes)
+        // Reject markets that are already closed (negative minutes)
         if minutes < 0.0 {
             return false;
         }
@@ -650,7 +654,7 @@ mod tests {
     #[test]
     fn test_matches_time_to_event_in_window() {
         let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
-        market.event_time = Utc::now() + Duration::hours(12);
+        market.close_time = Utc::now() + Duration::hours(12);
 
         assert!(StrategyEvaluator::matches_time_to_event(
             &market,
@@ -662,7 +666,7 @@ mod tests {
     #[test]
     fn test_matches_time_to_event_too_soon() {
         let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
-        market.event_time = Utc::now() + Duration::hours(1);
+        market.close_time = Utc::now() + Duration::hours(1);
 
         assert!(!StrategyEvaluator::matches_time_to_event(
             &market,
@@ -674,7 +678,7 @@ mod tests {
     #[test]
     fn test_matches_time_to_event_too_late() {
         let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
-        market.event_time = Utc::now() + Duration::hours(48);
+        market.close_time = Utc::now() + Duration::hours(48);
 
         assert!(!StrategyEvaluator::matches_time_to_event(
             &market,
@@ -686,7 +690,7 @@ mod tests {
     #[test]
     fn test_matches_time_to_event_past_event() {
         let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
-        market.event_time = Utc::now() - Duration::hours(1);
+        market.close_time = Utc::now() - Duration::hours(1);
 
         assert!(!StrategyEvaluator::matches_time_to_event(
             &market,

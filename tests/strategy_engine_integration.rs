@@ -104,7 +104,7 @@ fn create_test_markets() -> Vec<Market> {
 #[test]
 fn test_full_strategy_evaluation_flow() {
     // Step 1: Load real strategy from JSON file
-    let strategy = StrategyLoader::load("strategies/underdog_hunter.json")
+    let strategy = StrategyLoader::load("tests/fixtures/strategies/underdog_hunter.json")
         .expect("Failed to load underdog_hunter.json");
 
     // Verify strategy loaded correctly
@@ -146,7 +146,7 @@ fn test_full_strategy_evaluation_flow() {
 
 #[test]
 fn test_no_signals_when_no_matches() {
-    let strategy = StrategyLoader::load("strategies/underdog_hunter.json")
+    let strategy = StrategyLoader::load("tests/fixtures/strategies/underdog_hunter.json")
         .expect("Failed to load strategy");
 
     // Create markets that don't match any filters
@@ -177,7 +177,7 @@ fn test_no_signals_when_no_matches() {
 
 #[test]
 fn test_volatility_hedge_generates_two_signals() {
-    let strategy = StrategyLoader::load("strategies/volatility_hedge.json")
+    let strategy = StrategyLoader::load("tests/fixtures/strategies/volatility_hedge.json")
         .expect("Failed to load volatility_hedge.json");
 
     // Create a market that matches volatility hedge strategy
@@ -237,7 +237,7 @@ fn test_disabled_strategy_returns_error() {
 #[test]
 fn test_evaluate_all_with_multiple_strategies() {
     // Load both strategies
-    let strategies = StrategyLoader::load_all("strategies")
+    let strategies = StrategyLoader::load_all("tests/fixtures/strategies")
         .expect("Failed to load strategies");
 
     assert!(strategies.len() >= 2, "Expected at least 2 strategies");

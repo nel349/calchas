@@ -16,6 +16,19 @@ use crate::trading::{
 };
 use rust_decimal::Decimal;
 
+/// Time range configuration calculated from all strategies
+#[derive(Debug, Clone)]
+pub struct TimeRangeConfig {
+    /// Minimum time to event in hours (smallest from all strategies)
+    pub min_time_to_event_hours: u32,
+    /// Maximum time to event in hours (largest from all strategies)
+    pub max_time_to_event_hours: u32,
+    /// Whether strategies have conflicting time ranges
+    pub has_conflicts: bool,
+    /// Details of each strategy's time range (for dashboard display)
+    pub strategy_ranges: Vec<(String, u32, u32)>, // (strategy_name, min_hours, max_hours)
+}
+
 /// Main application state containing all trading components
 pub struct AppState {
     /// Kalshi API client for fetching market data
@@ -47,6 +60,9 @@ pub struct AppState {
 
     /// Starting capital for ROI calculations
     pub starting_capital: Decimal,
+
+    /// Time range configuration for API filtering (calculated from all strategies)
+    pub time_range_config: TimeRangeConfig,
 }
 
 impl AppState {
@@ -72,9 +88,13 @@ impl AppState {
         let strategies_vec = StrategyLoader::load_all(&strategies_dir)?;
         let strategies: HashMap<StrategyId, Strategy> = strategies_vec
             .into_iter()
+            .filter(|s| s.enabled)  // Only load enabled strategies
             .map(|s| (s.id.clone(), s))
             .collect();
-        tracing::info!("✓ Loaded {} strategies", strategies.len());
+        tracing::info!("✓ Loaded {} strategies ({} enabled)", strategies.len(), strategies.len());
+
+        // Calculate time range configuration from all strategies
+        let time_range_config = Self::calculate_time_range(&strategies);
 
         // Initialize trading components
         let strategy_evaluator = StrategyEvaluator;
@@ -111,6 +131,59 @@ impl AppState {
             position_manager,
             metrics_tracker,
             starting_capital,
+            time_range_config,
         })
+    }
+
+    /// Calculate time range configuration from all strategies
+    ///
+    /// Finds the widest time window across all strategies and detects conflicts
+    fn calculate_time_range(strategies: &HashMap<StrategyId, Strategy>) -> TimeRangeConfig {
+        let mut min_time = u32::MAX;
+        let mut max_time = 0u32;
+        let mut strategy_ranges = Vec::new();
+        let mut min_values = std::collections::HashSet::new();
+        let mut max_values = std::collections::HashSet::new();
+
+        for strategy in strategies.values() {
+            let strat_min = strategy.filters.min_time_to_event_hours.unwrap_or(1);
+            let strat_max = strategy.filters.max_time_to_event_hours.unwrap_or(720);
+
+            min_time = min_time.min(strat_min);
+            max_time = max_time.max(strat_max);
+
+            strategy_ranges.push((strategy.name.clone(), strat_min, strat_max));
+            min_values.insert(strat_min);
+            max_values.insert(strat_max);
+        }
+
+        // Default to reasonable values if no strategies
+        if strategies.is_empty() {
+            min_time = 1;
+            max_time = 720;
+        }
+
+        // Conflicts exist if strategies have different min or max values
+        let has_conflicts = strategies.len() > 1 && (min_values.len() > 1 || max_values.len() > 1);
+
+        if has_conflicts {
+            tracing::warn!("⚠️  Multiple strategies with different time windows detected!");
+            tracing::warn!(
+                "    Using widest range: {}h - {}h to cover all strategies",
+                min_time, max_time
+            );
+            for (name, min, max) in &strategy_ranges {
+                tracing::warn!("    - {}: {}h - {}h", name, min, max);
+            }
+        } else if !strategies.is_empty() {
+            tracing::info!("Time window: {}h - {}h (from {} strategies)", min_time, max_time, strategies.len());
+        }
+
+        TimeRangeConfig {
+            min_time_to_event_hours: min_time,
+            max_time_to_event_hours: max_time,
+            has_conflicts,
+            strategy_ranges,
+        }
     }
 }

@@ -46,6 +46,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         status: Some("open".to_string()),
         cursor: None,
         series_ticker: None,
+        min_close_ts: None,
+        max_close_ts: None,
     };
 
     let response = client.get_markets(request).await?;

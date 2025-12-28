@@ -64,8 +64,12 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
                 iteration += 1;
                 tracing::info!("=== ITERATION {} ===", iteration);
 
-                // 1. Fetch markets from Kalshi
-                let markets = match fetch_active_markets(&state.kalshi_client).await {
+                // 1. Fetch markets from Kalshi (using time window from strategies)
+                let markets = match fetch_active_markets(
+                    &state.kalshi_client,
+                    state.time_range_config.min_time_to_event_hours,
+                    state.time_range_config.max_time_to_event_hours,
+                ).await {
                     Ok(m) => {
                         tracing::info!("Fetched {} active markets", m.len());
                         m
@@ -82,8 +86,9 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
                     tracing::info!("Generated {} entry signals", signal_market_pairs.len());
                 }
 
-                // 3. Process entry signals (limit to 1 for Phase 4 testing)
-                for (signal, _market) in signal_market_pairs.into_iter().take(1) {
+                // 3. Process entry signals
+                // Risk manager will prevent duplicates and enforce position limits
+                for (signal, _market) in signal_market_pairs {
                     if let Err(e) = process_entry_signal(state, signal).await {
                         tracing::error!("Failed to process entry signal: {}", e);
                     }

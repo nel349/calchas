@@ -14,21 +14,41 @@ use std::sync::Arc;
 /// # Arguments
 ///
 /// * `kalshi_client` - Kalshi API client
+/// * `min_hours` - Minimum hours until close
+/// * `max_hours` - Maximum hours until close
 ///
 /// # Returns
 ///
 /// Vector of active markets
 pub async fn fetch_active_markets(
     kalshi_client: &Arc<KalshiClient>,
+    min_hours: u32,
+    max_hours: u32,
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
-    tracing::debug!("Fetching markets from Kalshi...");
+    use chrono::Utc;
+    let fetch_time = Utc::now();
+    tracing::info!("Fetching markets from Kalshi at {}", fetch_time.format("%H:%M:%S"));
 
-    // Get all markets with status="open"
+    // Calculate time window from strategy config
+    let min_close_time = fetch_time + chrono::Duration::hours(min_hours as i64);
+    let max_close_time = fetch_time + chrono::Duration::hours(max_hours as i64);
+
+    tracing::info!(
+        "Time filter: markets closing between {} and {} ({}h-{}h window)",
+        min_close_time.format("%Y-%m-%d %H:%M"),
+        max_close_time.format("%Y-%m-%d %H:%M"),
+        min_hours,
+        max_hours
+    );
+
+    // Get markets with status="open" and closing within our time window
     let request = GetMarketsRequest {
         limit: Some(200),
         cursor: None,
         status: Some("open".to_string()),
         series_ticker: None,
+        min_close_ts: Some(min_close_time.timestamp()),
+        max_close_ts: Some(max_close_time.timestamp()),
     };
 
     let response = kalshi_client.get_markets(request).await?;
@@ -39,7 +59,7 @@ pub async fn fetch_active_markets(
         .map(|km| km.into())
         .collect();
 
-    tracing::debug!("Fetched {} active markets", markets.len());
+    tracing::info!("Fetched {} active markets from Kalshi", markets.len());
     Ok(markets)
 }
 
@@ -155,12 +175,6 @@ pub async fn process_entry_signal(
         order
     };
 
-    tracing::info!(
-        "✓ Order filled: {} @ ${:.2}",
-        filled_order.filled_quantity,
-        filled_order.average_fill_price.unwrap_or_default()
-    );
-
     // Open position
     let position_id = state.position_manager.open_position(filled_order.clone(), strategy)?;
 
@@ -168,10 +182,17 @@ pub async fn process_entry_signal(
     if let Some(position) = state.position_manager.get_position(&position_id) {
         state.positions.insert(position_id.clone(), position.clone());
 
+        let side_str = match position.side {
+            crate::models::PositionSide::Yes => "YES",
+            crate::models::PositionSide::No => "NO",
+        };
+
         tracing::info!(
-            "✓ Position opened: {} (entry: ${:.2}, TP: ${:.2}, SL: ${:.2})",
-            position_id.0,
+            "✓ POSITION OPENED: {} ({} side) @ ${:.2} (qty: {}) | TP: ${:.2} | SL: ${:.2}",
+            signal.market_ticker,
+            side_str,
             position.entry_price,
+            position.quantity,
             position.exit_target.take_profit_price.unwrap_or_default(),
             position.exit_target.stop_loss_price.unwrap_or_default()
         );
@@ -198,7 +219,7 @@ pub async fn update_and_check_positions(
         return Ok(());
     }
 
-    tracing::debug!("Updating prices for {} positions", state.positions.len());
+    tracing::info!("--- Price Updates ({} positions) ---", state.positions.len());
 
     // Build market lookup map for efficient price updates
     let market_map: std::collections::HashMap<_, _> = markets
@@ -244,11 +265,26 @@ pub async fn update_and_check_positions(
             updated
         };
 
-        tracing::trace!(
-            "Position {} price updated: ${:.2} → ${:.2} (P&L: ${:.2})",
-            position_id.0,
-            position.current_price,
+        let side_str = match position.side {
+            crate::models::PositionSide::Yes => "YES",
+            crate::models::PositionSide::No => "NO",
+        };
+
+        let price_change = current_price - position.current_price;
+        let change_symbol = if price_change > rust_decimal::Decimal::ZERO {
+            "↑"
+        } else if price_change < rust_decimal::Decimal::ZERO {
+            "↓"
+        } else {
+            "="
+        };
+
+        tracing::info!(
+            "  {} ({}) @ ${:.2} {} (P&L: ${:.2})",
+            market.ticker,
+            side_str,
             current_price,
+            change_symbol,
             updated_position.unrealized_pnl
         );
 
@@ -324,7 +360,7 @@ pub fn print_status(state: &AppState) {
     let metrics = state.metrics_tracker.calculate_metrics();
 
     tracing::info!(
-        "Status: {} active | Trades: {} | Win rate: {:.1}% | ROI: {:.2}%",
+        "═══ Status: {} open positions | {} trades completed | Win: {:.1}% | ROI: {:.2}% ═══",
         active_positions,
         metrics.total_trades,
         metrics.win_rate,

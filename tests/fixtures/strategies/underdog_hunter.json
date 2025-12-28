@@ -3,7 +3,7 @@
   "name": "Underdog Hunter",
   "description": "Buy cheap underdog contracts in sports markets and exit on momentum swings",
   "version": "1.0.0",
-  "enabled": false,
+  "enabled": true,
   "filters": {
     "categories": ["Sports"],
     "exclude_categories": null,

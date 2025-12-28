@@ -27,6 +27,14 @@ pub struct GetMarketsRequest {
     /// Filter by series ticker
     #[serde(skip_serializing_if = "Option::is_none")]
     pub series_ticker: Option<String>,
+
+    /// Minimum close timestamp (Unix timestamp in seconds)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_close_ts: Option<i64>,
+
+    /// Maximum close timestamp (Unix timestamp in seconds)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_close_ts: Option<i64>,
 }
 
 // =============================================================================
@@ -353,6 +361,8 @@ mod tests {
             cursor: None,
             status: Some("open".to_string()),
             series_ticker: None,
+            min_close_ts: None,
+            max_close_ts: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();

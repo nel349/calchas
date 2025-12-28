@@ -3,7 +3,7 @@
   "name": "Volatility Hedge",
   "description": "Buy both Yes and No sides to profit from price movement in either direction",
   "version": "1.0.0",
-  "enabled": false,
+  "enabled": true,
   "filters": {
     "categories": ["Sports", "Politics"],
     "exclude_categories": null,

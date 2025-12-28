@@ -4,9 +4,10 @@
 //!
 //! # Risk Checks
 //!
-//! 1. **max_concurrent_positions** - Limits number of open positions
-//! 2. **max_daily_loss_usd** - Stops trading if daily loss exceeds limit
-//! 3. **loss_cooldown_minutes** - Enforces cooldown after daily loss limit hit
+//! 1. **duplicate_market** - Prevents multiple positions on the same market
+//! 2. **loss_cooldown_minutes** - Enforces cooldown after daily loss limit hit
+//! 3. **max_daily_loss_usd** - Stops trading if daily loss exceeds limit
+//! 4. **max_concurrent_positions** - Limits number of open positions
 //!
 //! # Example
 //!
@@ -71,6 +72,11 @@ pub enum RejectionReason {
     InCooldown {
         minutes_remaining: i64,
     },
+
+    /// Already have a position on this market
+    DuplicateMarket {
+        market_id: String,
+    },
 }
 
 /// Daily trading statistics
@@ -131,7 +137,7 @@ impl RiskManager {
     /// * `RiskDecision::Rejected(reason)` - Risk limit violated
     pub fn check_entry(
         &mut self,
-        _signal: &EntrySignal,
+        signal: &EntrySignal,
         positions: &HashMap<PositionId, Position>,
         strategy: &Strategy,
     ) -> RiskDecision {
@@ -140,7 +146,16 @@ impl RiskManager {
 
         let risk_limits = &strategy.risk_limits;
 
-        // Check 1: Cooldown period (check FIRST - most restrictive)
+        // Check 1: Duplicate market (check FIRST - prevent multiple positions on same market)
+        for position in positions.values() {
+            if position.market_id == signal.market_id {
+                return RiskDecision::Rejected(RejectionReason::DuplicateMarket {
+                    market_id: signal.market_id.0.clone(),
+                });
+            }
+        }
+
+        // Check 2: Cooldown period
         // If user hit loss limit earlier and cooldown is active, reject immediately
         if let Some(cooldown_minutes) = risk_limits.loss_cooldown_minutes {
             if let Some(cooldown_start) = self.daily_stats.cooldown_started_at {
@@ -157,7 +172,7 @@ impl RiskManager {
             }
         }
 
-        // Check 2: Daily loss limit
+        // Check 3: Daily loss limit
         if let Some(max_loss) = risk_limits.max_daily_loss_usd {
             if self.daily_stats.daily_pnl < -max_loss {
                 return RiskDecision::Rejected(RejectionReason::DailyLossExceeded {
@@ -167,9 +182,12 @@ impl RiskManager {
             }
         }
 
-        // Check 3: Max concurrent positions
+        // Check 4: Max concurrent positions (count only for this strategy)
         let max_positions = risk_limits.max_concurrent_positions;
-        let current_positions = positions.len();
+        let current_positions = positions
+            .values()
+            .filter(|p| p.strategy_id == signal.strategy_id)
+            .count();
         if current_positions >= max_positions as usize {
             return RiskDecision::Rejected(RejectionReason::MaxConcurrentPositions {
                 current: current_positions,
@@ -326,11 +344,11 @@ mod tests {
     }
 
     // Helper: Create test position
-    fn create_test_position(_id_str: &str) -> Position {
+    fn create_test_position(id_str: &str) -> Position {
         Position {
             id: PositionId::new(),
             strategy_id: StrategyId::new("test-strategy".to_string()),
-            market_id: MarketId::new("TEST-MARKET".to_string()),
+            market_id: MarketId::new(format!("MARKET-{}", id_str)),
             entry_order_id: OrderId::new("test-order-1".to_string()),
             exit_order_id: None,
             side: PositionSide::Yes,
@@ -422,6 +440,89 @@ mod tests {
             RiskDecision::Rejected(RejectionReason::MaxConcurrentPositions {
                 current: 2,
                 limit: 2
+            })
+        );
+    }
+
+    #[test]
+    fn test_multi_strategy_position_limit() {
+        let mut risk_mgr = RiskManager::new();
+
+        // Signal for strategy A
+        let mut signal_a = create_test_signal();
+        signal_a.strategy_id = StrategyId::new("strategy-a".to_string());
+
+        // Strategy A has limit of 2
+        let strategy_a = create_test_strategy(2, None, None);
+
+        // Positions: 2 from strategy A, 3 from strategy B
+        let mut positions = HashMap::new();
+
+        // Strategy A positions
+        let mut pos_a1 = create_test_position("a1");
+        pos_a1.strategy_id = StrategyId::new("strategy-a".to_string());
+        let mut pos_a2 = create_test_position("a2");
+        pos_a2.strategy_id = StrategyId::new("strategy-a".to_string());
+
+        // Strategy B positions (should not affect strategy A's count)
+        let mut pos_b1 = create_test_position("b1");
+        pos_b1.strategy_id = StrategyId::new("strategy-b".to_string());
+        let mut pos_b2 = create_test_position("b2");
+        pos_b2.strategy_id = StrategyId::new("strategy-b".to_string());
+        let mut pos_b3 = create_test_position("b3");
+        pos_b3.strategy_id = StrategyId::new("strategy-b".to_string());
+
+        positions.insert(pos_a1.id.clone(), pos_a1);
+        positions.insert(pos_a2.id.clone(), pos_a2);
+        positions.insert(pos_b1.id.clone(), pos_b1);
+        positions.insert(pos_b2.id.clone(), pos_b2);
+        positions.insert(pos_b3.id.clone(), pos_b3);
+
+        // Total positions: 5
+        // Strategy A positions: 2 (at limit)
+        // Strategy B positions: 3
+
+        let decision = risk_mgr.check_entry(&signal_a, &positions, &strategy_a);
+
+        // Should be REJECTED because strategy A has 2 positions and limit is 2
+        assert_eq!(
+            decision,
+            RiskDecision::Rejected(RejectionReason::MaxConcurrentPositions {
+                current: 2,
+                limit: 2
+            })
+        );
+
+        // Now test signal from strategy B with higher limit
+        let mut signal_b = create_test_signal();
+        signal_b.strategy_id = StrategyId::new("strategy-b".to_string());
+        let strategy_b = create_test_strategy(5, None, None);
+
+        let decision = risk_mgr.check_entry(&signal_b, &positions, &strategy_b);
+
+        // Should be APPROVED because strategy B has 3 positions and limit is 5
+        assert_eq!(decision, RiskDecision::Approved);
+    }
+
+    #[test]
+    fn test_rejected_duplicate_market() {
+        let mut risk_mgr = RiskManager::new();
+        let signal = create_test_signal();
+        let mut positions = HashMap::new();
+
+        // Create a position on the SAME market as the signal
+        let mut pos = create_test_position("pos-1");
+        pos.market_id = MarketId::new("TEST-MARKET".to_string()); // Same as signal
+        positions.insert(pos.id.clone(), pos);
+
+        let strategy = create_test_strategy(10, None, None);
+
+        let decision = risk_mgr.check_entry(&signal, &positions, &strategy);
+
+        assert_eq!(
+            decision,
+            RiskDecision::Rejected(RejectionReason::DuplicateMarket {
+                market_id: "TEST-MARKET".to_string()
             })
         );
     }

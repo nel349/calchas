@@ -7,8 +7,8 @@
   "filters": {
     "categories": null,
     "exclude_categories": null,
-    "min_price": "0.20",
-    "max_price": "0.80",
+    "min_price": "0.05",
+    "max_price": "0.95",
     "min_volume": 10000,
     "min_open_interest": 5000,
     "min_time_to_event_minutes": 60,
@@ -16,7 +16,7 @@
   },
   "entry_rules": {
     "side": "CheaperSide",
-    "position_size": 10,
+    "position_size": 1,
     "position_size_unit": "Dollars",
     "order_type": "Market",
     "limit_price_offset": null
@@ -30,7 +30,7 @@
     "exit_order_type": "Market"
   },
   "risk_limits": {
-    "max_concurrent_positions": 5,
+    "max_concurrent_positions": 50,
     "max_daily_loss_usd": "500.00",
     "max_position_loss_usd": "100.00",
     "loss_cooldown_minutes": 60

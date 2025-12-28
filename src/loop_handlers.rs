@@ -114,7 +114,7 @@ pub async fn fetch_markets_by_ids(
     let market_id_set: std::collections::HashSet<_> = market_ids.iter().cloned().collect();
     let mut found_markets = Vec::new();
     let mut cursor: Option<String> = None;
-    let max_pages = 10;  // Search up to 10k markets
+    let max_pages = 30;  // Search up to 30k markets (supports up to 1000 positions)
     let mut page_count = 0;
 
     loop {
@@ -503,10 +503,75 @@ pub async fn update_and_check_positions(
 async fn execute_exit(
     state: &mut AppState,
     position_id: &crate::models::PositionId,
-    _exit_reason: ExitReason,  // Not used - close_position determines it internally
+    exit_reason: ExitReason,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Close position via position manager
-    let trade = state.position_manager.close_position(position_id).await?;
+    use crate::models::{Order, OrderId, OrderSide, OrderAction, OrderType};
+    use chrono::Utc;
+
+    // Get position from PositionManager (it has the updated price)
+    let position = state.position_manager.get_position(position_id)
+        .ok_or("Position not found")?
+        .clone();
+
+    // Create exit order directly (bypass slow simulator market fetch)
+    // We already have current price from the position update loop
+    let order_id = OrderId::new(format!("sim_exit_{}", uuid::Uuid::new_v4()));
+
+    // Convert PositionSide to OrderSide
+    let order_side = match position.side {
+        crate::models::PositionSide::Yes => OrderSide::Yes,
+        crate::models::PositionSide::No => OrderSide::No,
+    };
+
+    let mut exit_order = Order::new(
+        order_id,
+        position.market_id.clone(),
+        Some(position_id.clone()),
+        order_side,
+        OrderAction::Sell,
+        OrderType::Market,
+        None,  // market order
+        position.quantity,
+    );
+
+    // Simulate instant fill at current price (we already updated it in the main loop)
+    exit_order.update_fill(position.quantity, position.current_price);
+
+    // Get exit price
+    let exit_price = exit_order.average_fill_price
+        .ok_or("Exit order not filled")?;
+
+    // Get mutable position to update it
+    let pm_position = state.position_manager.get_position_mut(position_id)
+        .ok_or("Position not found in manager")?;
+
+    // Mark position as closed
+    pm_position.mark_exit_pending(exit_order.id.clone());
+    pm_position.mark_closed();
+
+    // Calculate fees (taker fees for simulation)
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
+    let entry_fees = (dec!(0.007) * pm_position.entry_price) * Decimal::from(pm_position.quantity);
+    let exit_fees = (dec!(0.007) * exit_price) * Decimal::from(pm_position.quantity);
+    let total_fees = entry_fees + exit_fees;
+
+    // Create trade record using Trade::new()
+    let trade = crate::models::Trade::new(
+        position_id.clone(),
+        pm_position.market_id.clone(),
+        pm_position.strategy_id.clone(),
+        pm_position.entry_order_id.clone(),
+        pm_position.entry_price,
+        pm_position.quantity,
+        pm_position.entry_timestamp,
+        exit_order.id.clone(),
+        exit_price,
+        pm_position.quantity,
+        Utc::now(),
+        exit_reason,
+        total_fees,
+    );
 
     tracing::info!(
         "✓ Position closed: {} (Net P&L: ${:.2}, Return: {:.2}%)",
@@ -530,13 +595,20 @@ pub fn print_status(state: &AppState) {
     let active_positions = state.positions.len();
     let metrics = state.metrics_tracker.calculate_metrics();
 
+    // Calculate total unrealized P&L from open positions
+    use rust_decimal::Decimal;
+    let total_unrealized_pnl: Decimal = state.positions.values()
+        .map(|p| p.unrealized_pnl)
+        .sum();
+
     tracing::info!("");
     tracing::info!("═══════════════════════════════════════════════════════════════");
-    tracing::info!("  Positions: {} open | Trades: {} | Win Rate: {:.1}% | ROI: {:.2}%",
+    tracing::info!("  Positions: {} open | Unrealized P&L: ${:.2} | Trades: {} | Win Rate: {:.1}% | Realized P&L: ${:.2}",
         active_positions,
+        total_unrealized_pnl,
         metrics.total_trades,
         metrics.win_rate,
-        metrics.net_roi
+        metrics.net_pnl
     );
     tracing::info!("═══════════════════════════════════════════════════════════════");
 }

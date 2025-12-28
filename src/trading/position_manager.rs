@@ -463,7 +463,7 @@ impl PositionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::strategy::{EntryRules, EntrySide, ExitRules, OrderType, RiskLimits, StrategyFilters};
+    use crate::models::strategy::{EntryRules, EntrySide, ExitRules, OrderType, PositionSizeUnit, RiskLimits, StrategyFilters};
     use crate::models::{MarketId, OrderAction, OrderId, OrderSide, StrategyId};
     use rust_decimal_macros::dec;
 

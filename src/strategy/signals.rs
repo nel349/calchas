@@ -112,8 +112,8 @@ pub struct EntrySignal {
     /// When this signal was generated
     pub generated_at: DateTime<Utc>,
 
-    /// Hours until the event occurs
-    pub time_to_event_hours: f64,
+    /// Minutes until the event occurs
+    pub time_to_event_minutes: f64,
 
     // Context (for logging/debugging)
     /// Total volume traded in this market
@@ -159,10 +159,10 @@ impl EntrySignal {
     pub fn from_market(market: &Market, strategy: &Strategy) -> Vec<EntrySignal> {
         let sides = Self::determine_side(market, &strategy.entry_rules.side);
 
-        // Calculate time to event in hours
+        // Calculate time to event in minutes
         let now = Utc::now();
         let time_to_event = market.event_time.signed_duration_since(now);
-        let time_to_event_hours = time_to_event.num_seconds() as f64 / 3600.0;
+        let time_to_event_minutes = time_to_event.num_seconds() as f64 / 60.0;
 
         sides
             .into_iter()
@@ -185,7 +185,7 @@ impl EntrySignal {
 
                 // Timing
                 generated_at: now,
-                time_to_event_hours,
+                time_to_event_minutes,
 
                 // Context
                 market_volume: market.volume,
@@ -196,8 +196,7 @@ impl EntrySignal {
 
     /// Determine which side(s) to trade based on entry rules
     ///
-    /// Converts semantic entry rules (cheaper/expensive/both) into concrete
-    /// trading actions (buy Yes or No).
+    /// Converts semantic entry rules into concrete trading actions (buy Yes or No).
     ///
     /// # Arguments
     ///
@@ -207,11 +206,21 @@ impl EntrySignal {
     /// # Returns
     ///
     /// A vector of (SignalSide, price) tuples:
+    /// - Yes: 1 tuple for Yes side
+    /// - No: 1 tuple for No side
     /// - CheaperSide: 1 tuple for cheaper side (if equal, picks Yes)
     /// - ExpensiveSide: 1 tuple for expensive side (if equal, picks Yes)
     /// - Both: 2 tuples (Yes and No)
     fn determine_side(market: &Market, entry_side: &EntrySide) -> Vec<(SignalSide, Decimal)> {
         match entry_side {
+            EntrySide::Yes => {
+                // Always buy Yes side
+                vec![(SignalSide::Yes, market.yes_price)]
+            }
+            EntrySide::No => {
+                // Always buy No side
+                vec![(SignalSide::No, market.no_price)]
+            }
             EntrySide::CheaperSide => {
                 // Buy the cheaper side (if equal, pick Yes for consistency)
                 if market.yes_price <= market.no_price {
@@ -284,12 +293,13 @@ mod tests {
                 max_price: None,
                 min_volume: None,
                 min_open_interest: None,
-                min_time_to_event_hours: None,
-                max_time_to_event_hours: None,
+                min_time_to_event_minutes: None,
+                max_time_to_event_minutes: None,
             },
             entry_rules: EntryRules {
                 side,
                 position_size,
+                position_size_unit: crate::models::strategy::PositionSizeUnit::Contracts,
                 order_type: StrategyOrderType::Market,
                 limit_price_offset: None,
             },
@@ -297,7 +307,8 @@ mod tests {
                 take_profit_pct: Some(dec!(50.0)),
                 stop_loss_pct: Some(dec!(30.0)),
                 trailing_stop_pct: None,
-                max_hold_time_hours: Some(24),
+                trailing_stop_activation_pct: None,
+                max_hold_time_minutes: Some(1440),
                 exit_order_type: StrategyOrderType::Market,
             },
             risk_limits: RiskLimits {
@@ -415,10 +426,10 @@ mod tests {
         let signals = EntrySignal::from_market(&market, &strategy);
         let signal = &signals[0];
 
-        // Time to event should be approximately 12 hours
+        // Time to event should be approximately 12 hours (720 minutes)
         // Allow some tolerance for execution time
-        assert!(signal.time_to_event_hours >= 11.9);
-        assert!(signal.time_to_event_hours <= 12.1);
+        assert!(signal.time_to_event_minutes >= 719.0);
+        assert!(signal.time_to_event_minutes <= 721.0);
     }
 
     #[test]

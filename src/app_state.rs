@@ -19,14 +19,14 @@ use rust_decimal::Decimal;
 /// Time range configuration calculated from all strategies
 #[derive(Debug, Clone)]
 pub struct TimeRangeConfig {
-    /// Minimum time to event in hours (smallest from all strategies)
-    pub min_time_to_event_hours: u32,
-    /// Maximum time to event in hours (largest from all strategies)
-    pub max_time_to_event_hours: u32,
+    /// Minimum time to event in minutes (smallest from all strategies)
+    pub min_time_to_event_minutes: u32,
+    /// Maximum time to event in minutes (largest from all strategies)
+    pub max_time_to_event_minutes: u32,
     /// Whether strategies have conflicting time ranges
     pub has_conflicts: bool,
     /// Details of each strategy's time range (for dashboard display)
-    pub strategy_ranges: Vec<(String, u32, u32)>, // (strategy_name, min_hours, max_hours)
+    pub strategy_ranges: Vec<(String, u32, u32)>, // (strategy_name, min_minutes, max_minutes)
 }
 
 /// Main application state containing all trading components
@@ -146,8 +146,8 @@ impl AppState {
         let mut max_values = std::collections::HashSet::new();
 
         for strategy in strategies.values() {
-            let strat_min = strategy.filters.min_time_to_event_hours.unwrap_or(1);
-            let strat_max = strategy.filters.max_time_to_event_hours.unwrap_or(720);
+            let strat_min = strategy.filters.min_time_to_event_minutes.unwrap_or(60);  // Default 1 hour
+            let strat_max = strategy.filters.max_time_to_event_minutes.unwrap_or(43200);  // Default 30 days
 
             min_time = min_time.min(strat_min);
             max_time = max_time.max(strat_max);
@@ -159,8 +159,8 @@ impl AppState {
 
         // Default to reasonable values if no strategies
         if strategies.is_empty() {
-            min_time = 1;
-            max_time = 720;
+            min_time = 60;  // 1 hour
+            max_time = 43200;  // 30 days
         }
 
         // Conflicts exist if strategies have different min or max values
@@ -169,19 +169,19 @@ impl AppState {
         if has_conflicts {
             tracing::warn!("⚠️  Multiple strategies with different time windows detected!");
             tracing::warn!(
-                "    Using widest range: {}h - {}h to cover all strategies",
+                "    Using widest range: {}min - {}min to cover all strategies",
                 min_time, max_time
             );
             for (name, min, max) in &strategy_ranges {
-                tracing::warn!("    - {}: {}h - {}h", name, min, max);
+                tracing::warn!("    - {}: {}min - {}min", name, min, max);
             }
         } else if !strategies.is_empty() {
-            tracing::info!("Time window: {}h - {}h (from {} strategies)", min_time, max_time, strategies.len());
+            tracing::info!("Time window: {}min - {}min (from {} strategies)", min_time, max_time, strategies.len());
         }
 
         TimeRangeConfig {
-            min_time_to_event_hours: min_time,
-            max_time_to_event_hours: max_time,
+            min_time_to_event_minutes: min_time,
+            max_time_to_event_minutes: max_time,
             has_conflicts,
             strategy_ranges,
         }

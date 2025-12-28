@@ -147,10 +147,10 @@ impl StrategyLoader {
             }
         }
 
-        if let Some(max_hold) = strategy.exit_rules.max_hold_time_hours {
+        if let Some(max_hold) = strategy.exit_rules.max_hold_time_minutes {
             if max_hold == 0 {
                 return Err(LoaderError::ValidationError(
-                    "Max hold time must be greater than 0 hours".to_string()
+                    "Max hold time must be greater than 0 minutes".to_string()
                 ));
             }
         }
@@ -267,12 +267,13 @@ mod tests {
                 "max_price": "0.90",
                 "min_volume": 100,
                 "min_open_interest": null,
-                "min_time_to_event_hours": 1,
-                "max_time_to_event_hours": 24
+                "min_time_to_event_minutes": 60,
+                "max_time_to_event_minutes": 1440
             },
             "entry_rules": {
                 "side": "CheaperSide",
                 "position_size": 100,
+                "position_size_unit": "Contracts",
                 "order_type": "Market",
                 "limit_price_offset": null
             },
@@ -280,7 +281,8 @@ mod tests {
                 "take_profit_pct": "50.0",
                 "stop_loss_pct": "30.0",
                 "trailing_stop_pct": null,
-                "max_hold_time_hours": 12,
+                "trailing_stop_activation_pct": null,
+                "max_hold_time_minutes": 720,
                 "exit_order_type": "Market"
             },
             "risk_limits": {
@@ -411,7 +413,7 @@ mod tests {
         let file_path = temp_dir.path().join("zero_hold.json");
 
         let mut json = create_valid_strategy_json();
-        json = json.replace("\"max_hold_time_hours\": 12", "\"max_hold_time_hours\": 0");
+        json = json.replace("\"max_hold_time_minutes\": 720", "\"max_hold_time_minutes\": 0");
 
         let mut file = fs::File::create(&file_path).unwrap();
         file.write_all(json.as_bytes()).unwrap();

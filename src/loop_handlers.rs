@@ -7,6 +7,7 @@ use crate::kalshi::{KalshiClient, GetMarketsRequest};
 use crate::models::{Market, ExitReason};
 use crate::strategy::signals::EntrySignal;
 use crate::trading::{RiskDecision, TradingError};
+use rust_decimal::prelude::ToPrimitive;
 use std::sync::Arc;
 
 /// Fetch active markets from Kalshi
@@ -14,31 +15,31 @@ use std::sync::Arc;
 /// # Arguments
 ///
 /// * `kalshi_client` - Kalshi API client
-/// * `min_hours` - Minimum hours until close
-/// * `max_hours` - Maximum hours until close
+/// * `min_minutes` - Minimum minutes until close
+/// * `max_minutes` - Maximum minutes until close
 ///
 /// # Returns
 ///
 /// Vector of active markets
 pub async fn fetch_active_markets(
     kalshi_client: &Arc<KalshiClient>,
-    min_hours: u32,
-    max_hours: u32,
+    min_minutes: u32,
+    max_minutes: u32,
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     use chrono::Utc;
     let fetch_time = Utc::now();
     tracing::info!("Fetching markets from Kalshi at {}", fetch_time.format("%H:%M:%S"));
 
-    // Calculate time window from strategy config
-    let min_close_time = fetch_time + chrono::Duration::hours(min_hours as i64);
-    let max_close_time = fetch_time + chrono::Duration::hours(max_hours as i64);
+    // Calculate time window from strategy config (convert minutes to Duration)
+    let min_close_time = fetch_time + chrono::Duration::minutes(min_minutes as i64);
+    let max_close_time = fetch_time + chrono::Duration::minutes(max_minutes as i64);
 
     tracing::info!(
-        "Time filter: markets closing between {} and {} ({}h-{}h window)",
+        "Time filter: markets closing between {} and {} ({}min-{}min window)",
         min_close_time.format("%Y-%m-%d %H:%M"),
         max_close_time.format("%Y-%m-%d %H:%M"),
-        min_hours,
-        max_hours
+        min_minutes,
+        max_minutes
     );
 
     // Get markets with status="open" and closing within our time window
@@ -151,11 +152,40 @@ pub async fn process_entry_signal(
 
         // Create order from signal (without executing through simulator)
         use crate::models::{Order, OrderId, OrderSide, OrderAction, OrderType};
+        use rust_decimal::Decimal;
+        use rust_decimal_macros::dec;
 
         let order_id = OrderId::new(format!("sim_{}", uuid::Uuid::new_v4()));
         let side = match signal.side {
             crate::strategy::signals::SignalSide::Yes => OrderSide::Yes,
             crate::strategy::signals::SignalSide::No => OrderSide::No,
+        };
+
+        // Calculate actual position size based on position_size_unit
+        let contracts = match strategy.entry_rules.position_size_unit {
+            crate::models::strategy::PositionSizeUnit::Contracts => {
+                // Use position_size directly
+                signal.position_size
+            }
+            crate::models::strategy::PositionSizeUnit::Dollars => {
+                // Calculate contracts from dollar amount including fees
+                let dollar_amount = Decimal::from(signal.position_size);
+
+                // Determine fee based on order type
+                let fee_per_contract = match signal.order_type {
+                    crate::models::strategy::OrderType::Market => dec!(0.007),  // Taker fee
+                    crate::models::strategy::OrderType::Limit => dec!(-0.001),  // Maker rebate
+                };
+
+                // Total cost per contract = price + fee
+                let cost_per_contract = signal.recommended_price + fee_per_contract;
+
+                // Calculate contracts: dollar_amount / cost_per_contract
+                let contracts_decimal = dollar_amount / cost_per_contract;
+
+                // Round down to get whole contracts
+                contracts_decimal.floor().to_u64().unwrap_or(0)
+            }
         };
 
         let mut order = Order::new(
@@ -166,11 +196,11 @@ pub async fn process_entry_signal(
             OrderAction::Buy,
             OrderType::Market,
             None,  // limit_price (market order)
-            signal.position_size,
+            contracts,
         );
 
         // Simulate instant fill at recommended price
-        order.update_fill(signal.position_size, signal.recommended_price);
+        order.update_fill(contracts, signal.recommended_price);
 
         order
     };

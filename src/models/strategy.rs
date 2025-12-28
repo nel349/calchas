@@ -31,6 +31,8 @@ impl StrategyId {
 /// Which side of the market to enter
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntrySide {
+    Yes,            // Always buy Yes side
+    No,             // Always buy No side
     CheaperSide,    // Buy cheaper side only (< 50¢)
     ExpensiveSide,  // Buy expensive side only (> 50¢)
     Both,           // Trade both sides (volatility hedge)
@@ -41,6 +43,13 @@ pub enum EntrySide {
 pub enum OrderType {
     Market,  // Immediate execution (taker fee)
     Limit,   // Price-based execution (maker fee)
+}
+
+/// Position sizing unit
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PositionSizeUnit {
+    Contracts,  // Fixed number of contracts
+    Dollars,    // Dollar amount (including fees)
 }
 
 // =============================================================================
@@ -62,9 +71,9 @@ pub struct StrategyFilters {
     pub min_volume: Option<u64>,
     pub min_open_interest: Option<u64>,
 
-    // Timing filters
-    pub min_time_to_event_hours: Option<u32>,
-    pub max_time_to_event_hours: Option<u32>,
+    // Timing filters (in minutes)
+    pub min_time_to_event_minutes: Option<u32>,
+    pub max_time_to_event_minutes: Option<u32>,
 }
 
 // =============================================================================
@@ -78,7 +87,8 @@ pub struct EntryRules {
     pub side: EntrySide,
 
     // Position sizing
-    pub position_size: u64,  // Number of contracts
+    pub position_size: u64,  // Number of contracts OR dollar amount
+    pub position_size_unit: PositionSizeUnit,  // Contracts or Dollars
 
     // Order type
     pub order_type: OrderType,
@@ -104,8 +114,11 @@ pub struct ExitRules {
     // Trailing stop distance (percentage from peak)
     pub trailing_stop_pct: Option<Decimal>,
 
-    // Maximum hold time (hours)
-    pub max_hold_time_hours: Option<u32>,
+    // Trailing stop activation threshold (percentage profit before trailing starts)
+    pub trailing_stop_activation_pct: Option<Decimal>,
+
+    // Maximum hold time (minutes)
+    pub max_hold_time_minutes: Option<u32>,
 
     // Exit order type
     pub exit_order_type: OrderType,
@@ -176,6 +189,22 @@ impl Strategy {
             EntrySide::ExpensiveSide | EntrySide::Both
         )
     }
+
+    /// Check if we should always enter on Yes side
+    pub fn trades_yes_side(&self) -> bool {
+        matches!(
+            self.entry_rules.side,
+            EntrySide::Yes | EntrySide::Both
+        )
+    }
+
+    /// Check if we should always enter on No side
+    pub fn trades_no_side(&self) -> bool {
+        matches!(
+            self.entry_rules.side,
+            EntrySide::No | EntrySide::Both
+        )
+    }
 }
 
 // =============================================================================
@@ -201,12 +230,13 @@ mod tests {
                 max_price: Some(dec!(0.20)),
                 min_volume: Some(1000),
                 min_open_interest: None,
-                min_time_to_event_hours: Some(2),
-                max_time_to_event_hours: Some(48),
+                min_time_to_event_minutes: Some(120),
+                max_time_to_event_minutes: Some(2880),
             },
             entry_rules: EntryRules {
                 side: EntrySide::CheaperSide,
                 position_size: 100,
+                position_size_unit: PositionSizeUnit::Contracts,
                 order_type: OrderType::Limit,
                 limit_price_offset: Some(dec!(-0.01)),
             },
@@ -214,7 +244,8 @@ mod tests {
                 take_profit_pct: Some(dec!(50.0)),
                 stop_loss_pct: Some(dec!(30.0)),
                 trailing_stop_pct: None,
-                max_hold_time_hours: Some(24),
+                trailing_stop_activation_pct: None,
+                max_hold_time_minutes: Some(1440),
                 exit_order_type: OrderType::Market,
             },
             risk_limits: RiskLimits {

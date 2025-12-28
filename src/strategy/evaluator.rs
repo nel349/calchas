@@ -167,8 +167,8 @@ impl StrategyEvaluator {
             && Self::matches_open_interest(market, filters.min_open_interest)
             && Self::matches_time_to_event(
                 market,
-                filters.min_time_to_event_hours,
-                filters.max_time_to_event_hours,
+                filters.min_time_to_event_minutes,
+                filters.max_time_to_event_minutes,
             )
     }
 
@@ -224,6 +224,8 @@ impl StrategyEvaluator {
 
         // Get the price(s) we care about based on entry side
         let prices_to_check: Vec<Decimal> = match entry_side {
+            EntrySide::Yes => vec![market.yes_price],
+            EntrySide::No => vec![market.no_price],
             EntrySide::CheaperSide => vec![market.cheaper_side_price()],
             EntrySide::ExpensiveSide => vec![market.expensive_side_price()],
             EntrySide::Both => vec![market.yes_price, market.no_price],
@@ -256,32 +258,32 @@ impl StrategyEvaluator {
 
     /// Check if market's event is within the acceptable time window
     ///
-    /// Calculates hours until event and checks if it's within [min, max] bounds.
+    /// Calculates minutes until event and checks if it's within [min, max] bounds.
     /// Markets with past events (negative duration) are rejected.
     fn matches_time_to_event(
         market: &Market,
-        min_hours: Option<u32>,
-        max_hours: Option<u32>,
+        min_minutes: Option<u32>,
+        max_minutes: Option<u32>,
     ) -> bool {
         let now = Utc::now();
         let time_to_event = market.event_time.signed_duration_since(now);
-        let hours = time_to_event.num_seconds() as f64 / 3600.0;
+        let minutes = time_to_event.num_seconds() as f64 / 60.0;
 
-        // Reject past events (negative hours)
-        if hours < 0.0 {
+        // Reject past events (negative minutes)
+        if minutes < 0.0 {
             return false;
         }
 
         // Check min bound
-        if let Some(min) = min_hours {
-            if hours < min as f64 {
+        if let Some(min) = min_minutes {
+            if minutes < min as f64 {
                 return false;
             }
         }
 
         // Check max bound
-        if let Some(max) = max_hours {
-            if hours > max as f64 {
+        if let Some(max) = max_minutes {
+            if minutes > max as f64 {
                 return false;
             }
         }
@@ -304,12 +306,12 @@ impl StrategyEvaluator {
 
         // Check min_time <= max_time
         if let (Some(min), Some(max)) = (
-            filters.min_time_to_event_hours,
-            filters.max_time_to_event_hours,
+            filters.min_time_to_event_minutes,
+            filters.max_time_to_event_minutes,
         ) {
             if min > max {
                 return Err(EvaluationError::InvalidStrategy(
-                    "min_time_to_event_hours cannot be greater than max_time_to_event_hours"
+                    "min_time_to_event_minutes cannot be greater than max_time_to_event_minutes"
                         .to_string(),
                 ));
             }
@@ -365,6 +367,7 @@ mod tests {
             entry_rules: EntryRules {
                 side,
                 position_size: 100,
+                position_size_unit: crate::models::strategy::PositionSizeUnit::Contracts,
                 order_type: crate::models::strategy::OrderType::Market,
                 limit_price_offset: None,
             },
@@ -372,7 +375,8 @@ mod tests {
                 take_profit_pct: Some(dec!(50.0)),
                 stop_loss_pct: Some(dec!(30.0)),
                 trailing_stop_pct: None,
-                max_hold_time_hours: Some(24),
+                trailing_stop_activation_pct: None,
+                max_hold_time_minutes: Some(1440),
                 exit_order_type: crate::models::strategy::OrderType::Market,
             },
             risk_limits: RiskLimits {
@@ -650,8 +654,8 @@ mod tests {
 
         assert!(StrategyEvaluator::matches_time_to_event(
             &market,
-            Some(2),
-            Some(24)
+            Some(120),  // 2 hours in minutes
+            Some(1440)  // 24 hours in minutes
         ));
     }
 
@@ -662,8 +666,8 @@ mod tests {
 
         assert!(!StrategyEvaluator::matches_time_to_event(
             &market,
-            Some(2),
-            Some(24)
+            Some(120),  // 2 hours in minutes
+            Some(1440)  // 24 hours in minutes
         ));
     }
 
@@ -674,8 +678,8 @@ mod tests {
 
         assert!(!StrategyEvaluator::matches_time_to_event(
             &market,
-            Some(2),
-            Some(24)
+            Some(120),  // 2 hours in minutes
+            Some(1440)  // 24 hours in minutes
         ));
     }
 
@@ -686,8 +690,8 @@ mod tests {
 
         assert!(!StrategyEvaluator::matches_time_to_event(
             &market,
-            Some(2),
-            Some(24)
+            Some(120),  // 2 hours in minutes
+            Some(1440)  // 24 hours in minutes
         ));
     }
 
@@ -711,8 +715,8 @@ mod tests {
             max_price: Some(dec!(0.20)), // min > max
             min_volume: None,
             min_open_interest: None,
-            min_time_to_event_hours: None,
-            max_time_to_event_hours: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
         };
 
         let strategy = create_test_strategy(filters, EntrySide::CheaperSide);
@@ -734,8 +738,8 @@ mod tests {
             max_price: None,
             min_volume: None,
             min_open_interest: None,
-            min_time_to_event_hours: Some(48),
-            max_time_to_event_hours: Some(2), // min > max
+            min_time_to_event_minutes: Some(2880),
+            max_time_to_event_minutes: Some(120), // min > max
         };
 
         let strategy = create_test_strategy(filters, EntrySide::CheaperSide);
@@ -745,7 +749,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("min_time_to_event_hours cannot be greater"));
+            .contains("min_time_to_event_minutes cannot be greater"));
     }
 
     // =========================================================================
@@ -761,8 +765,8 @@ mod tests {
             max_price: Some(dec!(0.20)),
             min_volume: Some(500),
             min_open_interest: None,
-            min_time_to_event_hours: Some(2),
-            max_time_to_event_hours: Some(48),
+            min_time_to_event_minutes: Some(120),
+            max_time_to_event_minutes: Some(2880),
         };
 
         let strategy = create_test_strategy(filters, EntrySide::CheaperSide);
@@ -781,8 +785,8 @@ mod tests {
             max_price: None,
             min_volume: None,
             min_open_interest: None,
-            min_time_to_event_hours: None,
-            max_time_to_event_hours: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
         };
 
         let strategy = create_test_strategy(filters, EntrySide::CheaperSide);
@@ -801,8 +805,8 @@ mod tests {
             max_price: None,
             min_volume: None,
             min_open_interest: None,
-            min_time_to_event_hours: None,
-            max_time_to_event_hours: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
         };
 
         let mut strategy = create_test_strategy(filters, EntrySide::CheaperSide);
@@ -827,8 +831,8 @@ mod tests {
             max_price: None,
             min_volume: None,
             min_open_interest: None,
-            min_time_to_event_hours: None,
-            max_time_to_event_hours: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
         };
 
         let strategy = create_test_strategy(filters, EntrySide::Both);
@@ -847,8 +851,8 @@ mod tests {
             max_price: None,
             min_volume: None,
             min_open_interest: None,
-            min_time_to_event_hours: None,
-            max_time_to_event_hours: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
         };
 
         let filters2 = StrategyFilters {
@@ -858,8 +862,8 @@ mod tests {
             max_price: None,
             min_volume: None,
             min_open_interest: None,
-            min_time_to_event_hours: None,
-            max_time_to_event_hours: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
         };
 
         let strategy1 = create_test_strategy(filters1, EntrySide::CheaperSide);

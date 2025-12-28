@@ -67,8 +67,8 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
                 // 1. Fetch markets from Kalshi (using time window from strategies)
                 let markets = match fetch_active_markets(
                     &state.kalshi_client,
-                    state.time_range_config.min_time_to_event_hours,
-                    state.time_range_config.max_time_to_event_hours,
+                    state.time_range_config.min_time_to_event_minutes,
+                    state.time_range_config.max_time_to_event_minutes,
                 ).await {
                     Ok(m) => {
                         tracing::info!("Fetched {} active markets", m.len());

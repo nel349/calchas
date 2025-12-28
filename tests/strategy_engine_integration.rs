@@ -136,8 +136,8 @@ fn test_full_strategy_evaluation_flow() {
     assert_eq!(signal.recommended_price, dec!(0.15));
 
     // Verify timing
-    assert!(signal.time_to_event_hours >= 23.9);
-    assert!(signal.time_to_event_hours <= 24.1);
+    assert!(signal.time_to_event_minutes >= 1434.0);  // 23.9 hours * 60
+    assert!(signal.time_to_event_minutes <= 1446.0);  // 24.1 hours * 60
 
     // Verify market context
     assert_eq!(signal.market_volume, 5000);

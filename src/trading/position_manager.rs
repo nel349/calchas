@@ -68,6 +68,7 @@ use crate::models::{
     ExitReason, ExitTarget, Market, Order, Position, PositionId, PositionSide,
     Strategy, Trade,
 };
+use crate::models::strategy::{EntrySide, EntryRules, ExitRules, OrderType, PositionSizeUnit, RiskLimits, StrategyFilters};
 use crate::kalshi::fees::{calculate_kalshi_taker_fee};
 use super::error::TradingError;
 use super::exit_manager::ExitManager;
@@ -378,8 +379,8 @@ impl PositionManager {
         });
 
         // Calculate expiry time
-        let expiry_time = exit_rules.max_hold_time_hours.map(|hours| {
-            entry_timestamp + Duration::hours(hours as i64)
+        let expiry_time = exit_rules.max_hold_time_minutes.map(|minutes| {
+            entry_timestamp + Duration::minutes(minutes as i64)
         });
 
         ExitTarget {
@@ -475,12 +476,13 @@ mod tests {
                 max_price: None,
                 min_volume: None,
                 min_open_interest: None,
-                min_time_to_event_hours: None,
-                max_time_to_event_hours: None,
+                min_time_to_event_minutes: None,
+                max_time_to_event_minutes: None,
             },
             entry_rules: EntryRules {
                 side: EntrySide::CheaperSide,
                 position_size: 100,
+                position_size_unit: PositionSizeUnit::Contracts,
                 order_type: OrderType::Market,
                 limit_price_offset: None,
             },
@@ -488,7 +490,8 @@ mod tests {
                 take_profit_pct: Some(dec!(50.0)),  // 50%
                 stop_loss_pct: Some(dec!(30.0)),     // 30%
                 trailing_stop_pct: Some(dec!(20.0)), // 20%
-                max_hold_time_hours: Some(24),       // 24 hours
+                trailing_stop_activation_pct: None,
+                max_hold_time_minutes: Some(1440),   // 24 hours
                 exit_order_type: OrderType::Market,
             },
             risk_limits: RiskLimits {
@@ -594,7 +597,7 @@ mod tests {
         strategy.exit_rules.take_profit_pct = None;
         strategy.exit_rules.stop_loss_pct = None;
         strategy.exit_rules.trailing_stop_pct = None;
-        strategy.exit_rules.max_hold_time_hours = None;
+        strategy.exit_rules.max_hold_time_minutes = None;
 
         let exit_target = PositionManager::calculate_exit_target(
             dec!(0.50),

@@ -282,7 +282,7 @@ mod tests {
             order_type,
             limit_price_offset: limit_offset,
             generated_at: Utc::now(),
-            time_to_event_hours: 24.0,
+            time_to_event_minutes: 1440.0,
             market_volume: 1000,
             market_open_interest: 500,
         }

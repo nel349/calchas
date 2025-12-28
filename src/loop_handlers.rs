@@ -583,6 +583,14 @@ async fn execute_exit(
     // Record trade in metrics tracker
     state.metrics_tracker.record_trade(&trade);
 
+    // Debug: Check metrics after recording
+    let metrics_after = state.metrics_tracker.calculate_metrics();
+    tracing::info!(
+        "📊 Metrics after trade: Trades={}, Net P&L=${:.4}",
+        metrics_after.total_trades,
+        metrics_after.net_pnl
+    );
+
     Ok(())
 }
 

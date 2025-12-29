@@ -505,6 +505,7 @@ mod tests {
             id: MarketId::new("TEST-001".to_string()),
             ticker: "TEST-MARKET".to_string(),
             title: "Test Market".to_string(),
+            event_ticker: "TEST-EVENT".to_string(),
             category,
             sub_category: None,
             status: crate::models::MarketStatus::Active,

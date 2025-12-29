@@ -195,6 +195,7 @@ impl From<KalshiMarket> for crate::models::Market {
             id: crate::models::MarketId::new(km.ticker.clone()),
             ticker: km.ticker,
             title: km.title,
+            event_ticker: km.event_ticker,
             category,
             sub_category: Some(km.subtitle),
             status,

@@ -43,7 +43,9 @@
 pub mod opportunity;
 pub mod cross_market;
 pub mod calculator;
+pub mod validator;
 
 pub use opportunity::ArbitrageOpportunity;
 pub use cross_market::CrossMarketDetector;
 pub use calculator::ArbitrageCalculator;
+pub use validator::{Phase2Validator, ValidationResult, print_validation_report};

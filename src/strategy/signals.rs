@@ -265,6 +265,7 @@ mod tests {
             id: MarketId::new("TEST-MARKET-001".to_string()),
             ticker: "TEST-MARKET".to_string(),
             title: "Test Market Title".to_string(),
+            event_ticker: "TEST-EVENT".to_string(),
             category: MarketCategory::Sports,
             sub_category: Some("Test".to_string()),
             status: MarketStatus::Active,

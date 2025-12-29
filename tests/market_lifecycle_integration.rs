@@ -17,6 +17,7 @@ fn create_market_with_status(status: MarketStatus, ticker: &str) -> Market {
         id: MarketId::new(ticker.to_string()),
         ticker: ticker.to_string(),
         title: "Test Game".to_string(),
+        event_ticker: "TEST-EVENT".to_string(),
         category: MarketCategory::Sports,
         sub_category: Some("Basketball".to_string()),
         status,

@@ -59,6 +59,7 @@ pub struct Market {
     pub id: MarketId,
     pub ticker: String,
     pub title: String,
+    pub event_ticker: String,  // Groups related markets (e.g., all markets for same game)
 
     // Classification
     pub category: MarketCategory,
@@ -228,6 +229,7 @@ mod tests {
             id: MarketId::new("TEST-001".to_string()),
             ticker: "RAIN-NY-2024".to_string(),
             title: "Will it rain in NYC on Feb 11, 2024?".to_string(),
+            event_ticker: "RAIN-NY-EVENT".to_string(),
             category: MarketCategory::Weather,
             sub_category: Some("Precipitation".to_string()),
             status: MarketStatus::Active,

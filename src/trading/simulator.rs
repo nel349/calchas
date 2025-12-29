@@ -234,6 +234,7 @@ mod tests {
             id: MarketId::new("TEST-MARKET".to_string()),
             ticker: "TEST-MARKET".to_string(),
             title: "Test Market".to_string(),
+            event_ticker: "TEST-EVENT".to_string(),
             category: crate::models::MarketCategory::Other("test".to_string()),
             sub_category: None,
             yes_price: dec!(0.60),

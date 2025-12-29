@@ -7,7 +7,10 @@ use serde::de::DeserializeOwned;
 use super::auth::KalshiAuth;
 use super::error::KalshiError;
 use super::retry::RetryPolicy;
-use super::types::{GetMarketsRequest, KalshiMarket, MarketsResponse};
+use super::types::{
+    GetMarketsRequest, KalshiMarket, MarketsResponse, OrderbookResponse,
+    TagsByCategoriesResponse, FiltersBySportResponse,
+};
 use crate::config::KalshiConfig;
 
 // =============================================================================
@@ -250,6 +253,120 @@ impl KalshiClient {
         }
 
         Ok(all_markets)
+    }
+
+    /// Fetch orderbook for a specific market
+    ///
+    /// # Arguments
+    ///
+    /// * `ticker` - Market ticker (e.g., "INXD-24FEB11-T5000")
+    /// * `depth` - Optional depth (None = all levels, Some(10) = 10 levels per side)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(OrderbookResponse)` - Orderbook with YES/NO ask levels
+    /// * `Err(KalshiError)` - If request fails
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use calchas::config::AppConfig;
+    /// use calchas::kalshi::client::KalshiClient;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let config = AppConfig::load_default()?;
+    /// # let client = KalshiClient::from_config(&config.kalshi)?;
+    /// let orderbook = client.get_orderbook("INXD-24FEB11-T5000", None).await?;
+    /// println!("YES best ask: {:?}", orderbook.orderbook.yes.first());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_orderbook(
+        &self,
+        ticker: &str,
+        depth: Option<u32>,
+    ) -> Result<OrderbookResponse, KalshiError> {
+        // Build query parameters
+        let mut query_params = Vec::new();
+
+        if let Some(d) = depth {
+            query_params.push(("depth", d.to_string()));
+        }
+
+        // Convert to &str references
+        let query_params_ref: Vec<(&str, &str)> = query_params
+            .iter()
+            .map(|(k, v)| (*k, v.as_str()))
+            .collect();
+
+        // Build path
+        let path = format!("/markets/{}/orderbook", ticker);
+
+        // Make authenticated request
+        let query_option = if query_params_ref.is_empty() {
+            None
+        } else {
+            Some(query_params_ref.as_slice())
+        };
+
+        self.request(Method::GET, &path, query_option).await
+    }
+
+    /// Get tags organized by series categories
+    ///
+    /// Fetches all available tags grouped by their parent series categories.
+    /// Useful for discovering what markets are available.
+    ///
+    /// # Returns
+    ///
+    /// Mapping of category names to lists of tags
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use calchas::config::AppConfig;
+    /// use calchas::kalshi::client::KalshiClient;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let config = AppConfig::load_default()?;
+    /// # let client = KalshiClient::from_config(&config.kalshi)?;
+    /// let tags = client.get_tags_by_categories().await?;
+    /// // tags.tags_by_categories: { "Sports": ["NFL", "NBA", ...], ... }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_tags_by_categories(&self) -> Result<TagsByCategoriesResponse, KalshiError> {
+        let path = "/search/tags_by_categories";
+        self.request(Method::GET, path, None).await
+    }
+
+    /// Get filters available for sports markets
+    ///
+    /// Fetches sport-specific filter options including scopes and competitions.
+    /// Helps discover what sports series are available.
+    ///
+    /// # Returns
+    ///
+    /// Sport filters with ordering and competition details
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use calchas::config::AppConfig;
+    /// use calchas::kalshi::client::KalshiClient;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let config = AppConfig::load_default()?;
+    /// # let client = KalshiClient::from_config(&config.kalshi)?;
+    /// let filters = client.get_filters_by_sport().await?;
+    /// // filters.sport_ordering: ["NFL", "NBA", "MLB", ...]
+    /// // filters.filters_by_sports: { "NFL": { scopes: [...], competitions: {...} }, ... }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_filters_by_sport(&self) -> Result<FiltersBySportResponse, KalshiError> {
+        let path = "/search/filters_by_sport";
+        self.request(Method::GET, path, None).await
     }
 
     /// Make authenticated HTTP request to Kalshi API

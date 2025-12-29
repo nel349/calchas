@@ -14,14 +14,16 @@ use std::sync::Arc;
 
 /// Fetch active markets from Kalshi (for entry scanning when we have capacity)
 ///
-/// Paginates through ALL active markets to maximize opportunities.
+/// Paginates through active markets to maximize opportunities.
 /// Fetches up to 10 pages (10,000 markets) for maximum coverage.
+/// If series_tickers is provided, fetches markets from each series and combines them.
 ///
 /// # Arguments
 ///
 /// * `kalshi_client` - Kalshi API client
 /// * `min_time_minutes` - Minimum time to event in minutes (from strategy config)
 /// * `max_time_minutes` - Maximum time to event in minutes (from strategy config)
+/// * `series_tickers` - Optional series tickers to filter by (e.g., ["KXNBAGAME", "KXNFLGAME"])
 ///
 /// # Returns
 ///
@@ -30,6 +32,7 @@ pub async fn fetch_all_markets(
     kalshi_client: &Arc<KalshiClient>,
     min_time_minutes: u32,
     max_time_minutes: u32,
+    series_tickers: Option<Vec<String>>,
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     use chrono::Utc;
     let now = Utc::now();
@@ -40,8 +43,47 @@ pub async fn fetch_all_markets(
     let max_close = now + chrono::Duration::minutes(max_time_minutes as i64);
 
     let mut all_markets = Vec::new();
+
+    // If multiple series tickers provided, fetch each series separately
+    match series_tickers {
+        Some(tickers) if !tickers.is_empty() => {
+            for ticker in tickers {
+                tracing::info!("📊 Fetching markets from series: {}", ticker);
+                let markets = fetch_series_markets(
+                    kalshi_client,
+                    &ticker,
+                    min_close.timestamp(),
+                    max_close.timestamp(),
+                ).await?;
+                all_markets.extend(markets);
+            }
+            tracing::info!("  Total: {} markets from {} series", all_markets.len(), all_markets.len());
+        }
+        _ => {
+            // No series filter - fetch all markets
+            tracing::info!("📊 Fetching all markets (no series filter)");
+            all_markets = fetch_series_markets(
+                kalshi_client,
+                "",
+                min_close.timestamp(),
+                max_close.timestamp(),
+            ).await?;
+        }
+    }
+
+    Ok(all_markets)
+}
+
+/// Helper: Fetch markets for a single series ticker
+async fn fetch_series_markets(
+    kalshi_client: &Arc<KalshiClient>,
+    series_ticker: &str,
+    min_close_ts: i64,
+    max_close_ts: i64,
+) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
+    let mut all_markets = Vec::new();
     let mut cursor: Option<String> = None;
-    let max_pages = 10;  // Fetch up to 10,000 markets for maximum coverage
+    let max_pages = 10;
     let mut page_count = 0;
 
     loop {
@@ -49,9 +91,9 @@ pub async fn fetch_all_markets(
             limit: Some(1000),
             cursor: cursor.clone(),
             status: Some("open".to_string()),
-            series_ticker: None,
-            min_close_ts: Some(min_close.timestamp()),
-            max_close_ts: Some(max_close.timestamp()),
+            series_ticker: if series_ticker.is_empty() { None } else { Some(series_ticker.to_string()) },
+            min_close_ts: Some(min_close_ts),
+            max_close_ts: Some(max_close_ts),
         };
 
         let response = kalshi_client.get_markets(request).await?;
@@ -83,7 +125,6 @@ pub async fn fetch_all_markets(
         }
     }
 
-    tracing::info!("  Total: {} markets from {} pages", all_markets.len(), page_count);
     Ok(all_markets)
 }
 

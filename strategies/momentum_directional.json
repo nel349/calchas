@@ -7,15 +7,16 @@
   "filters": {
     "categories": null,
     "exclude_categories": null,
+    "series_ticker": ["KXNBAGAME", "KXNFLGAME", "KXNHLGAME", "KXMLBGAME", "KXNCAAMBGAME", "KXBTC15M", "KXETH15M"],
     "min_price": "0.25",
     "max_price": "0.75",
-    "min_volume": 10000,
-    "min_open_interest": 2000,
+    "min_volume": 2000,
+    "min_open_interest": 500,
     "min_time_to_event_minutes": null,
     "max_time_to_event_minutes": null,
     "min_momentum_pct": "1.0",
     "momentum_lookback_minutes": 60,
-    "max_spread_cents": "0.05",
+    "max_spread_cents": "0.10",
     "min_best_price_quantity": 50
   },
   "entry_rules": {
@@ -27,7 +28,7 @@
   },
   "exit_rules": {
     "take_profit_pct": "10",
-    "stop_loss_pct": "5",
+    "stop_loss_pct": null,
     "trailing_stop_pct": null,
     "trailing_stop_activation_pct": null,
     "max_hold_time_minutes": null,

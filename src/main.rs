@@ -77,10 +77,17 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
                 let all_markets = if has_capacity {
                     // We have capacity - scan ALL markets for new opportunities
                     tracing::info!("Position capacity: {}/{} - Scanning for entries", current_positions, max_concurrent);
+
+                    // Extract series_tickers from first enabled strategy (if any)
+                    let series_tickers = state.strategies.values()
+                        .next()
+                        .and_then(|s| s.filters.series_ticker.clone());
+
                     match fetch_all_markets(
                         &state.kalshi_client,
                         state.time_range_config.min_time_to_event_minutes,
                         state.time_range_config.max_time_to_event_minutes,
+                        series_tickers,
                     ).await {
                         Ok(m) => {
                             // Record prices for momentum tracking

@@ -26,4 +26,4 @@ pub use order_executor::OrderExecutor;
 pub use position_manager::PositionManager;
 pub use metrics_tracker::{MetricsTracker, SimulationMetrics, ExitToLiveDecision, DailyRecord};
 pub use price_tracker::PriceTracker;
-pub use orderbook_provider::{OrderbookProvider, SimulatedOrderbookProvider, OrderbookError};
+pub use orderbook_provider::{OrderbookProvider, SimulatedOrderbookProvider, RealOrderbookProvider, OrderbookError};

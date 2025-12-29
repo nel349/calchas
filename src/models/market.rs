@@ -124,32 +124,38 @@ pub struct OrderbookLevel {
 pub struct Orderbook {
     pub market_id: MarketId,
 
-    /// YES side orders (sorted by price ascending - best ask first)
+    /// YES side orders (sorted by price ascending - best ask LAST, stale orders first)
     pub yes_asks: Vec<OrderbookLevel>,
 
-    /// NO side orders (sorted by price ascending - best ask first)
+    /// NO side orders (sorted by price ascending - best ask LAST, stale orders first)
     pub no_asks: Vec<OrderbookLevel>,
 }
 
 impl Orderbook {
     /// Get best ask price for YES side
+    ///
+    /// Note: Kalshi orderbook is sorted ascending (1¢ → market price)
+    /// The LAST element is the current market price, first elements are stale orders
     pub fn yes_best_ask(&self) -> Option<Decimal> {
-        self.yes_asks.first().map(|level| level.price)
+        self.yes_asks.last().map(|level| level.price)
     }
 
     /// Get best ask price for NO side
+    ///
+    /// Note: Kalshi orderbook is sorted ascending (1¢ → market price)
+    /// The LAST element is the current market price, first elements are stale orders
     pub fn no_best_ask(&self) -> Option<Decimal> {
-        self.no_asks.first().map(|level| level.price)
+        self.no_asks.last().map(|level| level.price)
     }
 
     /// Get quantity available at best YES ask
     pub fn yes_best_ask_quantity(&self) -> u64 {
-        self.yes_asks.first().map(|level| level.quantity).unwrap_or(0)
+        self.yes_asks.last().map(|level| level.quantity).unwrap_or(0)
     }
 
     /// Get quantity available at best NO ask
     pub fn no_best_ask_quantity(&self) -> u64 {
-        self.no_asks.first().map(|level| level.quantity).unwrap_or(0)
+        self.no_asks.last().map(|level| level.quantity).unwrap_or(0)
     }
 
     /// Calculate spread (difference between YES and NO best asks)

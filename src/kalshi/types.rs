@@ -394,4 +394,146 @@ mod tests {
         let response: MarketsResponse = serde_json::from_str(json).unwrap();
         assert_eq!(response.cursor, None);
     }
+
+    #[test]
+    fn test_orderbook_response_deserialization() {
+        let json = r#"{
+            "orderbook": {
+                "yes": [[45, 100], [46, 75], [47, 50]],
+                "no": [[55, 100], [54, 75], [53, 50]],
+                "yes_dollars": [["0.45", 100], ["0.46", 75], ["0.47", 50]],
+                "no_dollars": [["0.55", 100], ["0.54", 75], ["0.53", 50]]
+            }
+        }"#;
+
+        let response: OrderbookResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.orderbook.yes.len(), 3);
+        assert_eq!(response.orderbook.yes[0], (45, 100));
+        assert_eq!(response.orderbook.no[0], (55, 100));
+    }
+
+    #[test]
+    fn test_orderbook_conversion_to_domain_model() {
+        let response = OrderbookResponse {
+            orderbook: OrderbookData {
+                yes: vec![(45, 100), (46, 75)],
+                no: vec![(55, 100), (54, 75)],
+                yes_dollars: vec![],
+                no_dollars: vec![],
+            },
+        };
+
+        let orderbook: crate::models::Orderbook = response.try_into().unwrap();
+        assert_eq!(orderbook.yes_asks.len(), 2);
+        assert_eq!(orderbook.yes_asks[0].price, Decimal::new(45, 2)); // 0.45
+        assert_eq!(orderbook.yes_asks[0].quantity, 100);
+        assert_eq!(orderbook.no_asks[0].price, Decimal::new(55, 2)); // 0.55
+        assert_eq!(orderbook.no_asks[0].quantity, 100);
+    }
+}
+
+// =============================================================================
+// ORDERBOOK TYPES
+// =============================================================================
+
+/// Response from GET /markets/{ticker}/orderbook endpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderbookResponse {
+    pub orderbook: OrderbookData,
+}
+
+/// Orderbook data from Kalshi API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderbookData {
+    /// YES side asks: array of [price_in_cents, contract_count]
+    #[serde(default)]
+    pub yes: Vec<(i64, u64)>,
+
+    /// NO side asks: array of [price_in_cents, contract_count]
+    #[serde(default)]
+    pub no: Vec<(i64, u64)>,
+
+    /// YES side asks in dollar strings (we ignore this)
+    #[serde(default, skip_serializing)]
+    pub yes_dollars: Vec<(String, u64)>,
+
+    /// NO side asks in dollar strings (we ignore this)
+    #[serde(default, skip_serializing)]
+    pub no_dollars: Vec<(String, u64)>,
+}
+
+/// Convert Kalshi orderbook response to domain model
+impl TryFrom<OrderbookResponse> for crate::models::Orderbook {
+    type Error = String;
+
+    fn try_from(response: OrderbookResponse) -> Result<Self, Self::Error> {
+        let data = response.orderbook;
+
+        // Extract market ID from context (need to pass this separately)
+        // For now, create placeholder - will be set by caller
+        let market_id = crate::models::MarketId::new("PLACEHOLDER".to_string());
+
+        // Convert YES asks
+        let yes_asks: Vec<crate::models::OrderbookLevel> = data
+            .yes
+            .iter()
+            .map(|(price_cents, quantity)| crate::models::OrderbookLevel {
+                price: Decimal::new(*price_cents, 2), // Convert cents to decimal
+                quantity: *quantity,
+            })
+            .collect();
+
+        // Convert NO asks
+        let no_asks: Vec<crate::models::OrderbookLevel> = data
+            .no
+            .iter()
+            .map(|(price_cents, quantity)| crate::models::OrderbookLevel {
+                price: Decimal::new(*price_cents, 2),
+                quantity: *quantity,
+            })
+            .collect();
+
+        Ok(crate::models::Orderbook {
+            market_id,
+            yes_asks,
+            no_asks,
+        })
+    }
+}
+
+// =============================================================================
+// SEARCH / DISCOVERY TYPES
+// =============================================================================
+
+/// Response from GET /search/tags_by_categories endpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagsByCategoriesResponse {
+    /// Mapping of series categories to their associated tags (can be null)
+    pub tags_by_categories: std::collections::HashMap<String, Option<Vec<String>>>,
+}
+
+/// Response from GET /search/filters_by_sport endpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FiltersBySportResponse {
+    /// Mapping of sports to their filter details
+    pub filters_by_sports: std::collections::HashMap<String, SportFilters>,
+    /// Ordered list of sports for display (NOTE: This field doesn't exist in actual API response)
+    #[serde(default)]
+    pub sport_ordering: Vec<String>,
+}
+
+/// Filter details for a specific sport
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SportFilters {
+    /// Available scopes for this sport
+    pub scopes: Vec<String>,
+    /// Mapping of competitions to their details
+    pub competitions: std::collections::HashMap<String, CompetitionDetails>,
+}
+
+/// Details for a specific competition within a sport
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompetitionDetails {
+    /// Available scopes for this competition
+    pub scopes: Vec<String>,
 }

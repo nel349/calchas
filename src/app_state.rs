@@ -12,7 +12,7 @@ use crate::strategy::loader::StrategyLoader;
 use crate::strategy::evaluator::StrategyEvaluator;
 use crate::trading::{
     OrderSimulator, RiskManager, ExitManager, OrderExecutor,
-    PositionManager, MetricsTracker, PriceTracker, SimulatedOrderbookProvider,
+    PositionManager, MetricsTracker, PriceTracker, RealOrderbookProvider,
 };
 use rust_decimal::Decimal;
 
@@ -61,8 +61,8 @@ pub struct AppState {
     /// Price tracker for momentum analysis
     pub price_tracker: PriceTracker,
 
-    /// Orderbook provider for liquidity checks (simulated in Phase 4)
-    pub orderbook_provider: SimulatedOrderbookProvider,
+    /// Orderbook provider for liquidity checks (using real API data)
+    pub orderbook_provider: RealOrderbookProvider,
 
     /// Starting capital for ROI calculations
     pub starting_capital: Decimal,
@@ -83,6 +83,12 @@ impl AppState {
     /// Initialized AppState ready for trading loop
     pub async fn new(config: AppConfig) -> Result<Self, Box<dyn std::error::Error>> {
         tracing::info!("Initializing application state...");
+
+        // DEBUG: Print which API we're using
+        tracing::info!("Kalshi API: {} (use_demo={})",
+            config.kalshi.base_url(),
+            config.kalshi.use_demo
+        );
 
         // Initialize Kalshi client
         let kalshi_client = Arc::new(KalshiClient::from_config(&config.kalshi)?);
@@ -124,9 +130,10 @@ impl AppState {
 
         let metrics_tracker = MetricsTracker::new(starting_capital);
         let price_tracker = PriceTracker::new();
-        let orderbook_provider = SimulatedOrderbookProvider::new(kalshi_client.clone());
+        let orderbook_provider = RealOrderbookProvider::new(kalshi_client.clone());
 
         tracing::info!("✓ All trading components initialized");
+        tracing::info!("✓ Using REAL orderbook data from Kalshi API");
 
         Ok(Self {
             kalshi_client,

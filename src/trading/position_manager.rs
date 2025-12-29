@@ -478,6 +478,7 @@ mod tests {
             filters: StrategyFilters {
                 categories: None,
                 exclude_categories: None,
+                series_ticker: None,
                 min_price: None,
                 max_price: None,
                 min_volume: None,

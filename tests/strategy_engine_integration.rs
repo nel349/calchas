@@ -279,6 +279,7 @@ fn test_momentum_filter_integration() {
         filters: StrategyFilters {
             categories: Some(vec![MarketCategory::Sports]),
             exclude_categories: None,
+            series_ticker: None,
             min_price: Some(dec!(0.10)),
             max_price: Some(dec!(0.90)),
             min_volume: Some(1000),
@@ -408,19 +409,19 @@ fn test_orderbook_structure() {
         ],
     };
 
-    // Best ask prices
-    assert_eq!(orderbook.yes_best_ask().unwrap(), dec!(0.55));
-    assert_eq!(orderbook.no_best_ask().unwrap(), dec!(0.48));
+    // Best ask prices (LAST element, since Kalshi orderbook is ascending)
+    assert_eq!(orderbook.yes_best_ask().unwrap(), dec!(0.56));
+    assert_eq!(orderbook.no_best_ask().unwrap(), dec!(0.49));
 
-    // Best quantities
-    assert_eq!(orderbook.yes_best_ask_quantity(), 100);
-    assert_eq!(orderbook.no_best_ask_quantity(), 75);
+    // Best quantities (LAST element)
+    assert_eq!(orderbook.yes_best_ask_quantity(), 50);
+    assert_eq!(orderbook.no_best_ask_quantity(), 25);
 
     // Spread calculation
-    // YES ask = 0.55
-    // NO ask = 0.48
-    // Implied YES from NO = 1.00 - 0.48 = 0.52
-    // Spread = 0.55 - 0.52 = 0.03
+    // YES ask = 0.56
+    // NO ask = 0.49
+    // Implied YES from NO = 1.00 - 0.49 = 0.51
+    // Spread = 0.56 - 0.51 = 0.05
     let spread = orderbook.spread().unwrap();
-    assert_eq!(spread, dec!(0.03));
+    assert_eq!(spread, dec!(0.05));
 }

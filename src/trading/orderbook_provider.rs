@@ -144,6 +144,67 @@ impl OrderbookProvider for SimulatedOrderbookProvider {
 }
 
 // =============================================================================
+// REAL ORDERBOOK PROVIDER (Phase 4+)
+// =============================================================================
+
+/// Real orderbook provider using Kalshi API
+///
+/// Fetches live orderbook data from Kalshi's orderbook endpoint.
+/// Used for realistic simulation and live trading.
+pub struct RealOrderbookProvider {
+    kalshi_client: Arc<KalshiClient>,
+}
+
+impl RealOrderbookProvider {
+    /// Create a new real orderbook provider
+    ///
+    /// # Arguments
+    ///
+    /// * `kalshi_client` - Shared Kalshi client for API calls
+    pub fn new(kalshi_client: Arc<KalshiClient>) -> Self {
+        Self { kalshi_client }
+    }
+}
+
+#[async_trait]
+impl OrderbookProvider for RealOrderbookProvider {
+    async fn get_orderbook(&self, market_id: &MarketId) -> Result<Option<Orderbook>, OrderbookError> {
+        // Extract ticker from MarketId (they're the same in Kalshi)
+        let ticker = market_id.as_str();
+
+        tracing::debug!("Fetching real orderbook for {}", ticker);
+
+        // Fetch orderbook from API (depth=None means all levels)
+        let response = self
+            .kalshi_client
+            .get_orderbook(ticker, None)
+            .await
+            .map_err(|e| OrderbookError::ApiFailed(e.to_string()))?;
+
+        tracing::debug!("Received orderbook: YES={} levels, NO={} levels",
+            response.orderbook.yes.len(),
+            response.orderbook.no.len()
+        );
+
+        // Convert to domain model
+        let mut orderbook: Orderbook = response
+            .try_into()
+            .map_err(|e: String| OrderbookError::ApiFailed(e))?;
+
+        // Fix the market_id (conversion sets it to PLACEHOLDER)
+        orderbook.market_id = market_id.clone();
+
+        // Check if orderbook is empty
+        if orderbook.yes_asks.is_empty() && orderbook.no_asks.is_empty() {
+            tracing::warn!("Empty orderbook received for {}", ticker);
+            return Err(OrderbookError::EmptyOrderbook);
+        }
+
+        Ok(Some(orderbook))
+    }
+}
+
+// =============================================================================
 // TESTS
 // =============================================================================
 
@@ -183,18 +244,19 @@ mod tests {
             market_id: MarketId::new("TEST".to_string()),
             yes_asks: vec![
                 OrderbookLevel { price: dec!(0.25), quantity: 50 },
-                OrderbookLevel { price: dec!(0.26), quantity: 100 },
+                OrderbookLevel { price: dec!(0.26), quantity: 100 },  // ← LAST = best ask
             ],
             no_asks: vec![
                 OrderbookLevel { price: dec!(0.75), quantity: 75 },
-                OrderbookLevel { price: dec!(0.76), quantity: 150 },
+                OrderbookLevel { price: dec!(0.76), quantity: 150 },  // ← LAST = best ask
             ],
         };
 
-        assert_eq!(orderbook.yes_best_ask().unwrap(), dec!(0.25));
-        assert_eq!(orderbook.yes_best_ask_quantity(), 50);
-        assert_eq!(orderbook.no_best_ask().unwrap(), dec!(0.75));
-        assert_eq!(orderbook.no_best_ask_quantity(), 75);
+        // Note: Kalshi orderbook is ascending, so LAST element is the best ask (current market price)
+        assert_eq!(orderbook.yes_best_ask().unwrap(), dec!(0.26));
+        assert_eq!(orderbook.yes_best_ask_quantity(), 100);
+        assert_eq!(orderbook.no_best_ask().unwrap(), dec!(0.76));
+        assert_eq!(orderbook.no_best_ask_quantity(), 150);
     }
 
     #[test]
@@ -244,14 +306,15 @@ mod tests {
         assert!(yes_ask_price > dec!(0.40)); // Should be above base price
         assert!(yes_ask_price < dec!(0.45)); // But not too much
 
-        // Verify decent liquidity
-        assert!(orderbook.yes_best_ask_quantity() >= 50);
+        // Verify decent liquidity (last level has liquidity/2 = 37)
+        assert!(orderbook.yes_best_ask_quantity() >= 30);
 
         // Verify YES + NO approximately equals 1.00 (within spread)
+        // Note: Using .last() means we get the higher prices (+0.01 each), so sum is ~1.028
         let no_ask_price = orderbook.no_best_ask().unwrap();
         let sum = yes_ask_price + no_ask_price;
-        assert!(sum > dec!(0.98));  // Should be close to 1.00
-        assert!(sum < dec!(1.02));
+        assert!(sum > dec!(1.00));  // Should be above 1.00 (both sides at higher price level)
+        assert!(sum < dec!(1.04));  // But not too much (spread + both +0.01)
     }
 
     #[test]

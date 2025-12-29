@@ -63,6 +63,12 @@ pub struct StrategyFilters {
     pub categories: Option<Vec<MarketCategory>>,
     pub exclude_categories: Option<Vec<MarketCategory>>,
 
+    // Series filter (e.g., ["KXNBAGAME", "KXNFLGAME"] for NBA and NFL games)
+    /// Kalshi series tickers to fetch markets from
+    /// Example: ["KXNBAGAME"] (NBA games only), ["KXNBAGAME", "KXNFLGAME"] (NBA + NFL)
+    /// If specified, only markets from these series will be fetched
+    pub series_ticker: Option<Vec<String>>,
+
     // Price range filters (in cents, 0-100)
     pub min_price: Option<Decimal>,
     pub max_price: Option<Decimal>,
@@ -244,6 +250,7 @@ mod tests {
             filters: StrategyFilters {
                 categories: Some(vec![MarketCategory::Sports]),
                 exclude_categories: None,
+                series_ticker: None,
                 min_price: Some(dec!(0.05)),
                 max_price: Some(dec!(0.20)),
                 min_volume: Some(1000),

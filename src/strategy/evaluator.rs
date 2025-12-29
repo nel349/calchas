@@ -874,6 +874,7 @@ mod tests {
         let filters = StrategyFilters {
             categories: None,
             exclude_categories: None,
+            series_ticker: None,
             min_price: Some(dec!(0.80)),
             max_price: Some(dec!(0.20)), // min > max
             min_volume: None,
@@ -901,6 +902,7 @@ mod tests {
         let filters = StrategyFilters {
             categories: None,
             exclude_categories: None,
+            series_ticker: None,
             min_price: None,
             max_price: None,
             min_volume: None,
@@ -932,6 +934,7 @@ mod tests {
         let filters = StrategyFilters {
             categories: Some(vec![MarketCategory::Sports]),
             exclude_categories: None,
+            series_ticker: None,
             min_price: Some(dec!(0.10)),
             max_price: Some(dec!(0.20)),
             min_volume: Some(500),
@@ -956,6 +959,7 @@ mod tests {
         let filters = StrategyFilters {
             categories: Some(vec![MarketCategory::Politics]),
             exclude_categories: None,
+            series_ticker: None,
             min_price: None,
             max_price: None,
             min_volume: None,
@@ -980,6 +984,7 @@ mod tests {
         let filters = StrategyFilters {
             categories: None,
             exclude_categories: None,
+            series_ticker: None,
             min_price: None,
             max_price: None,
             min_volume: None,
@@ -1010,6 +1015,7 @@ mod tests {
         let filters = StrategyFilters {
             categories: Some(vec![MarketCategory::Sports]),
             exclude_categories: None,
+            series_ticker: None,
             min_price: None,
             max_price: None,
             min_volume: None,
@@ -1034,6 +1040,7 @@ mod tests {
         let filters1 = StrategyFilters {
             categories: Some(vec![MarketCategory::Sports]),
             exclude_categories: None,
+            series_ticker: None,
             min_price: None,
             max_price: None,
             min_volume: None,
@@ -1049,6 +1056,7 @@ mod tests {
         let filters2 = StrategyFilters {
             categories: Some(vec![MarketCategory::Politics]),
             exclude_categories: None,
+            series_ticker: None,
             min_price: None,
             max_price: None,
             min_volume: None,

@@ -1,0 +1,42 @@
+{
+  "id": "volatility-straddle",
+  "name": "Volatility Straddle",
+  "description": "Pure volatility play. Opens both YES and NO positions on high-activity markets, betting on large price movements in either direction. Requires big moves to overcome double fees.",
+  "version": "1.0.0",
+  "enabled": false,
+  "filters": {
+    "categories": null,
+    "exclude_categories": null,
+    "min_price": "0.30",
+    "max_price": "0.70",
+    "min_volume": 50000,
+    "min_open_interest": 10000,
+    "min_time_to_event_minutes": null,
+    "max_time_to_event_minutes": null,
+    "min_momentum_pct": null,
+    "momentum_lookback_minutes": null,
+    "max_spread_cents": "0.03",
+    "min_best_price_quantity": 200
+  },
+  "entry_rules": {
+    "side": "Both",
+    "position_size": 10,
+    "position_size_unit": "Dollars",
+    "order_type": "Market",
+    "limit_price_offset": null
+  },
+  "exit_rules": {
+    "take_profit_pct": "15",
+    "stop_loss_pct": "8",
+    "trailing_stop_pct": null,
+    "trailing_stop_activation_pct": null,
+    "max_hold_time_minutes": null,
+    "exit_order_type": "Market"
+  },
+  "risk_limits": {
+    "max_concurrent_positions": 10,
+    "max_daily_loss_usd": "500.00",
+    "max_position_loss_usd": "100.00",
+    "loss_cooldown_minutes": 90
+  }
+}

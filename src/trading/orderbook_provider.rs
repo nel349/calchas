@@ -181,10 +181,15 @@ impl OrderbookProvider for RealOrderbookProvider {
             .await
             .map_err(|e| OrderbookError::ApiFailed(e.to_string()))?;
 
-        tracing::debug!("Received orderbook: YES={} levels, NO={} levels",
-            response.orderbook.yes.len(),
-            response.orderbook.no.len()
-        );
+        // Check if orderbook data exists
+        if let Some(ref data) = response.orderbook {
+            tracing::debug!("Received orderbook: YES={} levels, NO={} levels",
+                data.yes.len(),
+                data.no.len()
+            );
+        } else {
+            tracing::debug!("Received null orderbook (no liquidity)");
+        }
 
         // Convert to domain model
         let mut orderbook: Orderbook = response

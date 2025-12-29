@@ -7,20 +7,45 @@ use calchas::app_state::AppState;
 use calchas::config::AppConfig;
 use calchas::loop_handlers::{
     fetch_all_markets, fetch_markets_by_ids, evaluate_strategies, process_entry_signal,
-    update_and_check_positions, print_status,
+    update_and_check_positions, print_status, scan_arbitrage_opportunities,
+    display_arbitrage_opportunities,
 };
+use clap::Parser;
+
+/// Calchas Trading Bot - Choose your strategy mode
+#[derive(Parser)]
+#[command(name = "calchas")]
+#[command(about = "Prediction market trading bot for Kalshi", long_about = None)]
+struct Args {
+    /// Trading mode: arbitrage (math-based, hedged) or strategy (JSON-defined strategies)
+    #[arg(long, value_enum)]
+    mode: TradingMode,
+}
+
+/// Trading strategy mode
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum TradingMode {
+    /// Cross-market arbitrage (hedged, guaranteed profit)
+    Arbitrage,
+    /// Strategy-based trading (executes strategies from JSON files)
+    Strategy,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
+    // Parse CLI arguments
+    let args = Args::parse();
+
+    // Initialize logging with RUST_LOG environment variable support
     tracing_subscriber::fmt()
         .with_target(false)
         .with_thread_ids(false)
         .with_level(true)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
     tracing::info!("🔮 Calchas - Prediction Market Trading Bot");
-    tracing::info!("Mode: SIMULATION (paper trading)");
+    tracing::info!("Mode: {:?} (SIMULATION - paper trading)", args.mode);
     tracing::info!("");
 
     // Load configuration (.env first, then config file)
@@ -34,8 +59,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Press Ctrl+C to stop");
     tracing::info!("");
 
-    // Main trading loop
-    run_trading_loop(&mut state).await?;
+    // Dispatch to appropriate mode
+    match args.mode {
+        TradingMode::Arbitrage => {
+            tracing::info!("🎯 ARBITRAGE MODE: Scanning for cross-market opportunities");
+            tracing::info!("    Strategy: Buy YES + NO when total < $0.98");
+            tracing::info!("    Risk: Hedged (guaranteed profit at settlement)");
+            tracing::info!("");
+            run_arbitrage_mode(&mut state).await?;
+        }
+        TradingMode::Strategy => {
+            tracing::info!("📈 STRATEGY MODE: Executing strategies from JSON files");
+            tracing::info!("    Source: strategies/*.json");
+            tracing::info!("    Risk: Varies by strategy (see JSON configs)");
+            tracing::info!("");
+            run_strategy_mode(&mut state).await?;
+        }
+    }
 
     tracing::info!("");
     tracing::info!("Shutting down gracefully...");
@@ -45,7 +85,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Main trading loop
+/// Arbitrage mode trading loop
+///
+/// Scans all markets for cross-market arbitrage opportunities where YES + NO < $0.98.
+/// Displays opportunities in real-time but does NOT execute (Week 1 detection only).
 ///
 /// # Arguments
 ///
@@ -54,7 +97,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # Returns
 ///
 /// Ok(()) when loop exits (Ctrl+C)
-async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_arbitrage_mode(state: &mut AppState) -> Result<(), Box<dyn std::error::Error>> {
+    let mut interval = tokio::time::interval(Duration::from_secs(10));
+    let mut iteration = 0u64;
+
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                iteration += 1;
+                tracing::info!("=== ARBITRAGE SCAN {} ===", iteration);
+
+                // Scan for arbitrage opportunities
+                match scan_arbitrage_opportunities(state).await {
+                    Ok(opportunities) => {
+                        // Display top 10 opportunities
+                        display_arbitrage_opportunities(&opportunities, 10);
+                    }
+                    Err(e) => {
+                        tracing::error!("Arbitrage scan failed: {}", e);
+                    }
+                }
+
+                // Also check existing positions (if any from previous runs)
+                if !state.positions.is_empty() {
+                    tracing::info!("Checking {} existing positions", state.positions.len());
+
+                    let market_ids: Vec<_> = state.positions.values()
+                        .map(|p| p.market_id.clone())
+                        .collect();
+
+                    match fetch_markets_by_ids(&state.kalshi_client, &market_ids).await {
+                        Ok(markets) => {
+                            if let Err(e) = update_and_check_positions(state, &markets).await {
+                                tracing::error!("Failed to update positions: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to fetch position markets: {}", e);
+                        }
+                    }
+                }
+
+                print_status(state);
+                tracing::info!("");
+            }
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Shutdown signal received");
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Strategy mode trading loop
+///
+/// Executes strategies loaded from JSON files in the strategies/ directory.
+/// This is the original trading loop logic.
+///
+/// # Arguments
+///
+/// * `state` - Application state
+///
+/// # Returns
+///
+/// Ok(()) when loop exits (Ctrl+C)
+async fn run_strategy_mode(state: &mut AppState) -> Result<(), Box<dyn std::error::Error>> {
     let mut interval = tokio::time::interval(Duration::from_secs(10));
     let mut iteration = 0u64;
 

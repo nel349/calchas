@@ -487,20 +487,21 @@ mod tests {
         }"#;
 
         let response: OrderbookResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(response.orderbook.yes.len(), 3);
-        assert_eq!(response.orderbook.yes[0], (45, 100));
-        assert_eq!(response.orderbook.no[0], (55, 100));
+        let orderbook = response.orderbook.unwrap();
+        assert_eq!(orderbook.yes.len(), 3);
+        assert_eq!(orderbook.yes[0], (45, 100));
+        assert_eq!(orderbook.no[0], (55, 100));
     }
 
     #[test]
     fn test_orderbook_conversion_to_domain_model() {
         let response = OrderbookResponse {
-            orderbook: OrderbookData {
+            orderbook: Some(OrderbookData {
                 yes: vec![(45, 100), (46, 75)],
                 no: vec![(55, 100), (54, 75)],
                 yes_dollars: vec![],
                 no_dollars: vec![],
-            },
+            }),
         };
 
         let orderbook: crate::models::Orderbook = response.try_into().unwrap();
@@ -519,7 +520,8 @@ mod tests {
 /// Response from GET /markets/{ticker}/orderbook endpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderbookResponse {
-    pub orderbook: OrderbookData,
+    /// Orderbook data (can be null for markets with no liquidity)
+    pub orderbook: Option<OrderbookData>,
 }
 
 /// Orderbook data from Kalshi API
@@ -547,7 +549,10 @@ impl TryFrom<OrderbookResponse> for crate::models::Orderbook {
     type Error = String;
 
     fn try_from(response: OrderbookResponse) -> Result<Self, Self::Error> {
-        let data = response.orderbook;
+        // Check if orderbook data exists (API returns null for markets with no liquidity)
+        let data = response
+            .orderbook
+            .ok_or_else(|| "Orderbook is null (market has no liquidity)".to_string())?;
 
         // Extract market ID from context (need to pass this separately)
         // For now, create placeholder - will be set by caller

@@ -3,7 +3,7 @@
   "name": "Momentum Directional",
   "description": "True trend-following strategy. Buys the side showing momentum, larger position sizes to minimize fee impact, wider targets for cleaner exits.",
   "version": "1.0.0",
-  "enabled": true,
+  "enabled": false,
   "filters": {
     "categories": null,
     "exclude_categories": null,

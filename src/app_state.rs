@@ -14,6 +14,7 @@ use crate::trading::{
     OrderSimulator, RiskManager, ExitManager, OrderExecutor,
     PositionManager, MetricsTracker, PriceTracker, RealOrderbookProvider,
 };
+use crate::arbitrage::{CrossMarketDetector, ArbitrageCalculator, calculator::ArbitrageConfig};
 use rust_decimal::Decimal;
 
 /// Time range configuration calculated from all strategies
@@ -63,6 +64,9 @@ pub struct AppState {
 
     /// Orderbook provider for liquidity checks (using real API data)
     pub orderbook_provider: RealOrderbookProvider,
+
+    /// Arbitrage detector for cross-market opportunities
+    pub arbitrage_detector: CrossMarketDetector,
 
     /// Starting capital for ROI calculations
     pub starting_capital: Decimal,
@@ -121,19 +125,38 @@ impl AppState {
             order_executor_arc.clone(),
         );
 
-        // Get starting capital from first strategy (they should all have same risk limits)
+        // Get starting capital from first strategy, or arbitrage config if no strategies
         let starting_capital = strategies
             .values()
             .next()
             .and_then(|s| s.risk_limits.max_daily_loss_usd)
-            .unwrap_or_else(|| Decimal::from(10000));
+            .unwrap_or(config.arbitrage.starting_capital);
 
         let metrics_tracker = MetricsTracker::new(starting_capital);
         let price_tracker = PriceTracker::new();
         let orderbook_provider = RealOrderbookProvider::new(kalshi_client.clone());
 
+        // Initialize arbitrage detector with configuration from TOML
+        let arb_config = ArbitrageConfig {
+            min_profit_pct: config.arbitrage.min_profit_pct,
+            min_quantity: config.arbitrage.min_quantity,
+            min_hours_to_settlement: config.arbitrage.min_hours_to_settlement,
+            max_capital_per_trade: config.arbitrage.max_capital_per_trade,
+        };
+
+        let arb_calculator = ArbitrageCalculator::new(arb_config);
+        let arbitrage_detector = CrossMarketDetector::new(
+            kalshi_client.clone(),
+            arb_calculator,
+        );
+
         tracing::info!("✓ All trading components initialized");
         tracing::info!("✓ Using REAL orderbook data from Kalshi API");
+        tracing::info!("✓ Arbitrage scanner initialized (capital: ${}, max/trade: ${}, min profit: {}%)",
+            config.arbitrage.starting_capital,
+            config.arbitrage.max_capital_per_trade,
+            config.arbitrage.min_profit_pct * Decimal::from(100)
+        );
 
         Ok(Self {
             kalshi_client,
@@ -147,6 +170,7 @@ impl AppState {
             metrics_tracker,
             price_tracker,
             orderbook_provider,
+            arbitrage_detector,
             starting_capital,
             time_range_config,
         })

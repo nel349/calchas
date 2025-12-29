@@ -61,15 +61,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let orderbook_response = client.get_orderbook(test_ticker, None).await?;
 
     tracing::info!("✅ Received orderbook:");
-    tracing::info!("  YES side: {} price levels", orderbook_response.orderbook.yes.len());
-    tracing::info!("  NO side: {} price levels", orderbook_response.orderbook.no.len());
 
-    if let Some((price, qty)) = orderbook_response.orderbook.yes.first() {
-        tracing::info!("  Best YES ask: {} cents ({} contracts)", price, qty);
-    }
+    if let Some(ref orderbook_data) = orderbook_response.orderbook {
+        tracing::info!("  YES side: {} price levels", orderbook_data.yes.len());
+        tracing::info!("  NO side: {} price levels", orderbook_data.no.len());
 
-    if let Some((price, qty)) = orderbook_response.orderbook.no.first() {
-        tracing::info!("  Best NO ask: {} cents ({} contracts)", price, qty);
+        if let Some((price, qty)) = orderbook_data.yes.first() {
+            tracing::info!("  Best YES ask: {} cents ({} contracts)", price, qty);
+        }
+
+        if let Some((price, qty)) = orderbook_data.no.first() {
+            tracing::info!("  Best NO ask: {} cents ({} contracts)", price, qty);
+        }
+    } else {
+        tracing::warn!("  Orderbook is null (no liquidity)");
     }
 
     // Test 2: Fetch via RealOrderbookProvider

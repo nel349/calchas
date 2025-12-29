@@ -25,6 +25,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"]
 # Configuration
 config = "0.15.19"
 dotenvy = "0.15"  # Load .env files
+clap = { version = "4.5", features = ["derive"] }  # CLI argument parsing
 
 # HTTP client (Kalshi API)
 reqwest = { version = "0.11", features = ["json"] }

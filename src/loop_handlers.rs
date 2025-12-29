@@ -238,6 +238,35 @@ pub async fn fetch_markets_by_ids(
     Ok(found_markets)
 }
 
+/// Scan for arbitrage opportunities across all markets
+///
+/// Uses the arbitrage detector to find cross-market arbitrage opportunities.
+/// These are guaranteed profit opportunities where YES + NO < $1.00.
+///
+/// # Arguments
+///
+/// * `state` - Application state
+///
+/// # Returns
+///
+/// Vector of arbitrage opportunities, sorted by profitability
+pub async fn scan_arbitrage_opportunities(
+    state: &AppState,
+) -> Result<Vec<crate::arbitrage::ArbitrageOpportunity>, Box<dyn std::error::Error>> {
+    tracing::info!("🔍 Starting arbitrage scan...");
+
+    let opportunities = state.arbitrage_detector.scan().await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+    if opportunities.is_empty() {
+        tracing::info!("  No arbitrage opportunities found");
+    } else {
+        tracing::info!("✅ Found {} arbitrage opportunities", opportunities.len());
+    }
+
+    Ok(opportunities)
+}
+
 /// Evaluate strategies against markets to generate entry signals
 ///
 /// Note: Prices are recorded in the main loop before calling this function.
@@ -896,5 +925,83 @@ pub fn print_status(state: &AppState) {
         metrics.win_rate,
         metrics.net_pnl
     );
+    tracing::info!("═══════════════════════════════════════════════════════════════");
+}
+
+/// Display arbitrage opportunities in formatted table
+///
+/// Shows the top arbitrage opportunities found, with detailed profit analysis.
+///
+/// # Arguments
+///
+/// * `opportunities` - List of arbitrage opportunities to display
+/// * `max_display` - Maximum number of opportunities to show (default: 10)
+pub fn display_arbitrage_opportunities(
+    opportunities: &[crate::arbitrage::ArbitrageOpportunity],
+    max_display: usize,
+) {
+    use rust_decimal::Decimal;
+
+    if opportunities.is_empty() {
+        return; // Already logged in scan function
+    }
+
+    tracing::info!("");
+    tracing::info!("🎯 ARBITRAGE OPPORTUNITIES DETECTED");
+    tracing::info!("═══════════════════════════════════════════════════════════════");
+
+    let to_show = std::cmp::min(max_display, opportunities.len());
+
+    for (idx, opp) in opportunities.iter().take(to_show).enumerate() {
+        // Calculate expected profit in USD for default position size
+        let position_size = std::cmp::min(opp.quantity, 100); // Show profit for 100 contracts or max available
+        let capital_needed = opp.capital_required(position_size);
+        let expected_profit = opp.expected_profit * Decimal::from(position_size);
+
+        tracing::info!(
+            "[{}] {} ({}d)",
+            idx + 1,
+            &opp.market_title[..std::cmp::min(50, opp.market_title.len())], // Truncate long titles
+            opp.time_to_settlement.num_days(),
+        );
+        tracing::info!(
+            "    YES: ${:.2} | NO: ${:.2} | Total: ${:.2} | Profit: {:.1}% | Annualized ROI: {:.0}%",
+            opp.yes_ask,
+            opp.no_ask,
+            opp.total_cost,
+            opp.profit_pct * Decimal::from(100),
+            opp.annualized_roi() * Decimal::from(100),
+        );
+        tracing::info!(
+            "    Qty: {} contracts | Capital: ${:.2} | Expected profit: ${:.2}",
+            opp.quantity,
+            capital_needed,
+            expected_profit,
+        );
+        tracing::info!("    Market ID: {}", opp.market_id.as_str());
+        tracing::info!("");
+    }
+
+    if opportunities.len() > max_display {
+        tracing::info!("  ... and {} more opportunities", opportunities.len() - max_display);
+        tracing::info!("");
+    }
+
+    // Summary statistics
+    let total_opportunities = opportunities.len();
+    let total_capital_available: Decimal = opportunities
+        .iter()
+        .map(|opp| opp.capital_required(std::cmp::min(opp.quantity, 100)))
+        .sum();
+    let avg_profit_pct: Decimal = opportunities
+        .iter()
+        .map(|opp| opp.profit_pct)
+        .sum::<Decimal>()
+        / Decimal::from(total_opportunities);
+
+    tracing::info!("📊 SUMMARY:");
+    tracing::info!("  Total opportunities: {}", total_opportunities);
+    tracing::info!("  Average profit: {:.1}%", avg_profit_pct * Decimal::from(100));
+    tracing::info!("  Capital to deploy all: ${:.2}", total_capital_available);
     tracing::info!("═══════════════════════════════════════════════════════════════");
 }

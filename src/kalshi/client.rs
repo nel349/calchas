@@ -277,7 +277,9 @@ impl KalshiClient {
     /// # let config = AppConfig::load_default()?;
     /// # let client = KalshiClient::from_config(&config.kalshi)?;
     /// let orderbook = client.get_orderbook("INXD-24FEB11-T5000", None).await?;
-    /// println!("YES best ask: {:?}", orderbook.orderbook.yes.first());
+    /// if let Some(ref data) = orderbook.orderbook {
+    ///     println!("YES best ask: {:?}", data.yes.first());
+    /// }
     /// # Ok(())
     /// # }
     /// ```

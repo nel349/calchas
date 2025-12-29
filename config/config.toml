@@ -79,3 +79,26 @@ private_key = ""     # Set via CALCHAS__KALSHI__PRIVATE_KEY
 # [risk]
 # max_total_positions = 10
 # max_total_exposure_usd = 1000
+
+# =============================================================================
+# ARBITRAGE CONFIGURATION
+# =============================================================================
+
+[arbitrage]
+# Starting capital (used for position sizing and risk limits)
+starting_capital = 500
+
+# Maximum capital to deploy per trade
+max_capital_per_trade = 75
+
+# Minimum profit percentage to consider (e.g., 0.04 = 4%)
+min_profit_pct = 0.04
+
+# Minimum hours before market settlement (avoid execution risk)
+min_hours_to_settlement = 12
+
+# Maximum days to settlement (optimize capital velocity)
+max_days_to_settlement = 7
+
+# Minimum contracts available (ensure sufficient liquidity)
+min_quantity = 40

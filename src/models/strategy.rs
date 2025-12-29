@@ -319,4 +319,57 @@ mod tests {
         assert_eq!(strategy.name, deserialized.name);
         assert_eq!(strategy.enabled, deserialized.enabled);
     }
+
+    #[test]
+    fn test_multiple_series_ticker_deserialization() {
+        // Test that series_ticker can handle multiple series (NBA, NFL, NHL, etc.)
+        let json = r#"{
+            "categories": null,
+            "exclude_categories": null,
+            "series_ticker": ["KXNBAGAME", "KXNFLGAME", "KXNHLGAME", "KXMLBGAME"],
+            "min_price": "0.25",
+            "max_price": "0.75",
+            "min_volume": 1000,
+            "min_open_interest": null,
+            "min_time_to_event_minutes": null,
+            "max_time_to_event_minutes": null,
+            "min_momentum_pct": null,
+            "momentum_lookback_minutes": null,
+            "max_spread_cents": null,
+            "min_best_price_quantity": null
+        }"#;
+
+        let filters: StrategyFilters = serde_json::from_str(json).unwrap();
+
+        assert!(filters.series_ticker.is_some());
+        let series = filters.series_ticker.unwrap();
+        assert_eq!(series.len(), 4);
+        assert_eq!(series[0], "KXNBAGAME");
+        assert_eq!(series[1], "KXNFLGAME");
+        assert_eq!(series[2], "KXNHLGAME");
+        assert_eq!(series[3], "KXMLBGAME");
+    }
+
+    #[test]
+    fn test_series_ticker_none() {
+        // Test that series_ticker can be null (fetch all markets)
+        let json = r#"{
+            "categories": null,
+            "exclude_categories": null,
+            "series_ticker": null,
+            "min_price": null,
+            "max_price": null,
+            "min_volume": null,
+            "min_open_interest": null,
+            "min_time_to_event_minutes": null,
+            "max_time_to_event_minutes": null,
+            "min_momentum_pct": null,
+            "momentum_lookback_minutes": null,
+            "max_spread_cents": null,
+            "min_best_price_quantity": null
+        }"#;
+
+        let filters: StrategyFilters = serde_json::from_str(json).unwrap();
+        assert!(filters.series_ticker.is_none());
+    }
 }

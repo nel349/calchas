@@ -85,8 +85,13 @@ pub struct KalshiMarket {
     /// When market closes for trading
     pub close_time: DateTime<Utc>,
 
-    /// When event expires/is resolved
+    /// When event expires/is resolved (fallback/max time)
     pub expiration_time: DateTime<Utc>,
+
+    /// Expected expiration time (actual scheduled event time, e.g., game start)
+    /// This is the real event time, while expiration_time is a fallback max
+    #[serde(default)]
+    pub expected_expiration_time: Option<DateTime<Utc>>,
 
     /// Market status
     pub status: String,
@@ -153,8 +158,10 @@ pub struct KalshiMarket {
 impl From<KalshiMarket> for crate::models::Market {
     fn from(km: KalshiMarket) -> Self {
         // Convert Kalshi status to MarketStatus enum
-        // Real API values: "active", "determined", "finalized"
+        // Real API values: "initialized", "active", "finalized"
+        // Note: "determined" exists in docs but rarely seen in practice
         let status = match km.status.as_str() {
+            "initialized" => crate::models::MarketStatus::Initialized,
             "active" => crate::models::MarketStatus::Active,
             "determined" => crate::models::MarketStatus::Determined,
             "finalized" => crate::models::MarketStatus::Finalized,
@@ -195,7 +202,8 @@ impl From<KalshiMarket> for crate::models::Market {
             // Convert negative sentinel values to 0
             volume: km.volume.max(0) as u64,
             open_interest: km.open_interest.max(0) as u64,
-            event_time: km.expiration_time,
+            // Use expected_expiration_time if available (actual game time), otherwise fallback to expiration_time
+            event_time: km.expected_expiration_time.unwrap_or(km.expiration_time),
             close_time: km.close_time,
             created_at: km.created_time,
             updated_at: Utc::now(),  // Kalshi doesn't provide this, use current time
@@ -225,6 +233,7 @@ mod tests {
             open_time: Utc::now(),
             close_time: Utc::now(),
             expiration_time: Utc::now(),
+            expected_expiration_time: Some(Utc::now()),
             status: "active".to_string(),  // Real API value
             response_price_units: "usd_cent".to_string(),
             yes_bid: 45,   // 45 cents = $0.45
@@ -331,6 +340,7 @@ mod tests {
     fn test_status_conversion() {
         // Test REAL API values found in production
         let test_cases = vec![
+            ("initialized", crate::models::MarketStatus::Initialized),  // Games not started yet
             ("active", crate::models::MarketStatus::Active),
             ("determined", crate::models::MarketStatus::Determined),
             ("finalized", crate::models::MarketStatus::Finalized),
@@ -344,6 +354,76 @@ mod tests {
             let generic: crate::models::Market = market.into();
             assert_eq!(generic.status, expected_status);
         }
+    }
+
+    #[test]
+    fn test_market_status_transitions() {
+        // Test the full lifecycle: initialized → active → determined → finalized
+        let base_market = create_test_kalshi_market();
+
+        // 1. INITIALIZED: Market created, game scheduled but not started
+        let mut market = base_market.clone();
+        market.status = "initialized".to_string();
+        let converted: crate::models::Market = market.into();
+        assert_eq!(converted.status, crate::models::MarketStatus::Initialized);
+        assert!(!converted.is_open());  // Can't trade yet
+
+        // 2. ACTIVE: Game started, trading live
+        let mut market = base_market.clone();
+        market.status = "active".to_string();
+        let converted: crate::models::Market = market.into();
+        assert_eq!(converted.status, crate::models::MarketStatus::Active);
+        assert!(converted.is_open());  // Can trade
+
+        // 3. DETERMINED: Game finished, outcome known but not settled
+        let mut market = base_market.clone();
+        market.status = "determined".to_string();
+        let converted: crate::models::Market = market.into();
+        assert_eq!(converted.status, crate::models::MarketStatus::Determined);
+        assert!(!converted.is_open());  // Can't trade anymore
+
+        // 4. FINALIZED: All payouts complete, market fully settled
+        let mut market = base_market.clone();
+        market.status = "finalized".to_string();
+        market.result = Some("yes".to_string());  // Settlement result
+        let converted: crate::models::Market = market.into();
+        assert_eq!(converted.status, crate::models::MarketStatus::Finalized);
+        assert!(!converted.is_open());  // Can't trade
+    }
+
+    #[test]
+    fn test_finalized_market_with_result() {
+        // Test that finalized markets can have settlement results
+        let mut market = create_test_kalshi_market();
+        market.status = "finalized".to_string();
+        market.result = Some("yes".to_string());
+        // When YES wins: both bid and ask settle at 100 cents ($1.00)
+        market.yes_bid = 100;
+        market.yes_ask = 100;
+        market.no_bid = 0;
+        market.no_ask = 0;
+
+        let converted: crate::models::Market = market.into();
+        assert_eq!(converted.status, crate::models::MarketStatus::Finalized);
+        // Conversion: Decimal::new(100, 2) = 1.00, avg(1.00, 1.00) = 1.00
+        assert_eq!(converted.yes_price, rust_decimal::Decimal::ONE);
+        assert_eq!(converted.no_price, rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_initialized_market_not_tradeable() {
+        // Markets in initialized state should not be tradeable
+        // (Game scheduled but hasn't started yet)
+        let mut market = create_test_kalshi_market();
+        market.status = "initialized".to_string();
+
+        let converted: crate::models::Market = market.into();
+
+        // Verify it's marked as initialized
+        assert_eq!(converted.status, crate::models::MarketStatus::Initialized);
+
+        // Verify it's NOT considered open for trading
+        assert!(!converted.is_open());
     }
 
     #[test]

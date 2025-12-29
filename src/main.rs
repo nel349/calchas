@@ -118,8 +118,6 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
                     match fetch_markets_by_ids(
                         &state.kalshi_client,
                         &market_ids,
-                        state.time_range_config.min_time_to_event_minutes,
-                        state.time_range_config.max_time_to_event_minutes,
                     ).await {
                         Ok(m) => m,
                         Err(e) => {

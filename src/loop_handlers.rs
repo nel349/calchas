@@ -130,14 +130,12 @@ async fn fetch_series_markets(
 
 /// Fetch specific markets by ID (for updating existing positions)
 ///
-/// Uses very broad time window and paginates to find position markets.
+/// Searches all markets without time filters to handle postponed/rescheduled games.
 ///
 /// # Arguments
 ///
 /// * `kalshi_client` - Kalshi API client
 /// * `market_ids` - Market IDs to fetch
-/// * `min_time_minutes` - Minimum time to event in minutes (from strategy config)
-/// * `max_time_minutes` - Maximum time to event in minutes (from strategy config)
 ///
 /// # Returns
 ///
@@ -145,39 +143,44 @@ async fn fetch_series_markets(
 pub async fn fetch_markets_by_ids(
     kalshi_client: &Arc<KalshiClient>,
     market_ids: &[crate::models::MarketId],
-    min_time_minutes: u32,
-    max_time_minutes: u32,
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
-    use chrono::Utc;
-    let now = Utc::now();
-
     // Deduplicate market IDs (e.g., "Both" strategy creates 2 positions per market)
     let market_id_set: std::collections::HashSet<_> = market_ids.iter().cloned().collect();
     tracing::info!("Fetching {} unique position markets ({} total positions)...",
         market_id_set.len(), market_ids.len());
 
-    // Use same time window as fetch_all_markets for consistency
-    let min_close = now + chrono::Duration::minutes(min_time_minutes as i64);
-    let max_close = now + chrono::Duration::minutes(max_time_minutes as i64);
+    // Extract unique series from market IDs (e.g., "KXNBAGAME-25DEC29CLESAS-CLE" → "KXNBAGAME")
+    let series_set: std::collections::HashSet<String> = market_ids.iter()
+        .filter_map(|id| {
+            // Split on first dash to get series
+            id.as_str().split('-').next().map(String::from)
+        })
+        .collect();
 
-    tracing::debug!("  Time window: {} to {}",
-        min_close.format("%Y-%m-%d %H:%M"),
-        max_close.format("%Y-%m-%d %H:%M")
-    );
+    tracing::debug!("  Position markets span {} series: {:?}", series_set.len(), series_set);
+
     let mut found_markets = Vec::new();
-    let mut cursor: Option<String> = None;
-    let max_pages = 5;  // Limit search to 5 pages max (5000 markets) - if not found, use stale prices
-    let mut page_count = 0;
 
-    loop {
-        let request = GetMarketsRequest {
-            limit: Some(1000),
-            cursor: cursor.clone(),
-            status: None,  // Allow ALL statuses when fetching position markets
-            series_ticker: None,
-            min_close_ts: Some(min_close.timestamp()),  // Keep time filters to avoid searching ancient history
-            max_close_ts: Some(max_close.timestamp()),
-        };
+    // Fetch each series separately to avoid pagination issues
+    // Must fetch both "open" (active/initialized) AND "settled" (finalized) markets
+    for series in series_set {
+        tracing::debug!("  Fetching markets from series: {}", series);
+
+        // Fetch both open and settled markets for this series
+        for status_filter in ["open", "settled"] {
+            let mut cursor: Option<String> = None;
+            let max_pages = 3;  // 3 pages per series should be enough
+            let mut page_count = 0;
+
+            loop {
+                let request = GetMarketsRequest {
+                    limit: Some(1000),
+                    cursor: cursor.clone(),
+                    status: Some(status_filter.to_string()),
+                    series_ticker: Some(series.clone()),
+                    min_close_ts: None,  // No time filter - games can be postponed
+                    max_close_ts: None,
+                };
 
         let response = kalshi_client.get_markets(request).await?;
 
@@ -203,18 +206,30 @@ pub async fn fetch_markets_by_ids(
         found_markets.extend(batch);
         page_count += 1;
 
-        // Stop if found all unique markets or hit page limit
-        if found_markets.len() >= market_id_set.len() || page_count >= max_pages {
-            break;
-        }
+                // Stop if found all unique markets or hit page limit for this series/status
+                if found_markets.len() >= market_id_set.len() || page_count >= max_pages {
+                    break;
+                }
 
-        if let Some(next_cursor) = response.cursor {
-            if !next_cursor.is_empty() {
-                cursor = Some(next_cursor);
-            } else {
+                if let Some(next_cursor) = response.cursor {
+                    if !next_cursor.is_empty() {
+                        cursor = Some(next_cursor);
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            // If we found all markets, stop searching other statuses/series
+            if found_markets.len() >= market_id_set.len() {
                 break;
             }
-        } else {
+        }
+
+        // If we found all markets, stop searching other series
+        if found_markets.len() >= market_id_set.len() {
             break;
         }
     }
@@ -546,14 +561,93 @@ pub async fn update_and_check_positions(
             Some(m) => m,
             None => {
                 tracing::warn!(
-                    "⚠️  Market {} not found in current data (map has {} markets), skipping price update for position {}",
+                    "⚠️  Market {} not found in API (checked {} markets)",
                     position.market_id.0,
-                    market_map.len(),
-                    position_id.0
+                    market_map.len()
                 );
+                tracing::warn!(
+                    "   Likely expired crypto market - force-closing position {} at last known price ${:.2}",
+                    position_id.0,
+                    position.current_price
+                );
+
+                // For crypto 15-min markets that disappear from API completely,
+                // close at last known price (settlement price unknown)
+
+                // Close the position manually
+                state.positions.remove(&position_id);
+
+                // Create trade record (manually since we can't fetch the market)
+                let trade = crate::models::Trade::new(
+                    position.id.clone(),
+                    position.market_id.clone(),
+                    position.strategy_id.clone(),
+                    position.entry_order_id.clone(),
+                    position.entry_price,
+                    position.quantity,
+                    position.entry_timestamp,
+                    crate::models::OrderId::new("manual-exit".to_string()), // Manual exit, no real order
+                    position.current_price, // Exit at last known price
+                    position.quantity,
+                    chrono::Utc::now(),
+                    crate::models::ExitReason::ManualExit,
+                    rust_decimal::Decimal::ZERO, // No fees for simulated closure
+                );
+
+                tracing::info!(
+                    "✓ Position closed (market disappeared from API) | P&L: ${:.2}",
+                    trade.net_pnl
+                );
+
+                state.metrics_tracker.record_trade(&trade);
+
                 continue;
             }
         };
+
+        // Check if market is finalized (game finished and settled)
+        // Don't close for "initialized" markets (games that haven't started yet)
+        if market.status == crate::models::MarketStatus::Finalized {
+            tracing::warn!(
+                "⚠️  Market {} is Finalized (game finished/settled) - closing position {}",
+                market.ticker,
+                position_id.0
+            );
+
+            // Get settlement price (YES=1.00 or YES=0.00 depending on outcome)
+            let settlement_price = match position.side {
+                crate::models::PositionSide::Yes => market.yes_price,
+                crate::models::PositionSide::No => market.no_price,
+            };
+
+            // Update position with settlement price
+            let mut settled_position = position.clone();
+            settled_position.update_price(settlement_price);
+
+            tracing::info!(
+                "💰 SETTLED: [{}/{}] {} | Entry ${:.2} → ${:.2} | Final P&L: ${:.2}",
+                match position.side {
+                    crate::models::PositionSide::Yes => "YES",
+                    crate::models::PositionSide::No => "NO ",
+                },
+                position.quantity,
+                market.ticker,
+                position.entry_price,
+                settlement_price,
+                settled_position.unrealized_pnl
+            );
+
+            // Execute settlement exit
+            match execute_exit(state, &position_id, ExitReason::MarketClosed).await {
+                Ok(()) => {
+                    state.positions.remove(&position_id);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to settle position {}: {}", position_id.0, e);
+                }
+            }
+            continue;
+        }
 
         // Get current price based on position side
         // In simulation, we use the market's current price
@@ -623,13 +717,14 @@ pub async fn update_and_check_positions(
                 color_end
             );
         } else {
-            // Price hasn't changed meaningfully - no arrow
+            // Price hasn't changed meaningfully - show current price without arrow
             tracing::info!(
-                "  [{}/{}] {} | Entry ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2}",
+                "  [{}/{}] {} | Entry ${:.2} → ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2}",
                 side_str,
                 position.quantity,
                 market.ticker,
                 position.entry_price,
+                current_price,
                 pnl_color,
                 updated_position.unrealized_pnl,
                 position.exit_target.take_profit_price.unwrap_or_default(),

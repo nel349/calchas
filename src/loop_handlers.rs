@@ -925,6 +925,12 @@ pub fn print_status(state: &AppState) {
         metrics.win_rate,
         metrics.net_pnl
     );
+
+    // Show arbitrage opportunities count if in arbitrage mode
+    if !state.arbitrage_opportunities_found.is_empty() {
+        tracing::info!("  Arbitrage Opportunities Found: {} total", state.arbitrage_opportunities_found.len());
+    }
+
     tracing::info!("═══════════════════════════════════════════════════════════════");
 }
 

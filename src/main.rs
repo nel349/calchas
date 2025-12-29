@@ -110,7 +110,16 @@ async fn run_arbitrage_mode(state: &mut AppState) -> Result<(), Box<dyn std::err
                 // Scan for arbitrage opportunities
                 match scan_arbitrage_opportunities(state).await {
                     Ok(opportunities) => {
-                        // Display top 10 opportunities
+                        // Accumulate opportunities for tracking
+                        if !opportunities.is_empty() {
+                            tracing::info!("📊 Adding {} new opportunities to tracker (total: {})",
+                                opportunities.len(),
+                                state.arbitrage_opportunities_found.len() + opportunities.len()
+                            );
+                            state.arbitrage_opportunities_found.extend(opportunities.clone());
+                        }
+
+                        // Display top 10 opportunities from this scan
                         display_arbitrage_opportunities(&opportunities, 10);
                     }
                     Err(e) => {

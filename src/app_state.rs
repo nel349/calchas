@@ -68,6 +68,9 @@ pub struct AppState {
     /// Arbitrage detector for cross-market opportunities
     pub arbitrage_detector: CrossMarketDetector,
 
+    /// Accumulated arbitrage opportunities found (for tracking/analysis)
+    pub arbitrage_opportunities_found: Vec<crate::arbitrage::ArbitrageOpportunity>,
+
     /// Starting capital for ROI calculations
     pub starting_capital: Decimal,
 
@@ -173,6 +176,7 @@ impl AppState {
             price_tracker,
             orderbook_provider,
             arbitrage_detector,
+            arbitrage_opportunities_found: Vec::new(),
             starting_capital,
             time_range_config,
         })

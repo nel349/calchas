@@ -109,10 +109,11 @@ impl RetryPolicy {
 
     /// Execute a function with retry logic
     ///
-    /// Retries only on KalshiError::RateLimited errors.
-    /// All other errors fail immediately without retry.
+    /// Retries on:
+    /// - KalshiError::RateLimited (uses server retry_after or exponential backoff)
+    /// - KalshiError::NetworkError (transient network failures, exponential backoff)
     ///
-    /// If the error includes retry_after_ms, uses that instead of exponential backoff.
+    /// All other errors (auth, parse, etc.) fail immediately without retry.
     ///
     /// # Type Parameters
     /// * `F` - Function that returns a Future
@@ -177,8 +178,31 @@ impl RetryPolicy {
                     attempt += 1;
                 }
 
+                Err(KalshiError::NetworkError(ref msg)) => {
+                    // Retry transient network errors (connection drops, timeouts, etc.)
+                    if attempt >= self.max_retries {
+                        return Err(KalshiError::NetworkError(msg.clone()));
+                    }
+
+                    // Use exponential backoff for network errors
+                    let delay = self.delay_for_attempt(attempt);
+
+                    tracing::warn!(
+                        "Network error (attempt {}/{}): {}. Retrying in {:.1}s...",
+                        attempt + 1,
+                        self.max_retries + 1,
+                        msg,
+                        delay.as_secs_f64()
+                    );
+
+                    // Wait before retry
+                    sleep(delay).await;
+
+                    attempt += 1;
+                }
+
                 Err(other_error) => {
-                    // Don't retry non-rate-limit errors
+                    // Don't retry auth, parse, or other non-transient errors
                     return Err(other_error);
                 }
             }
@@ -269,7 +293,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_non_rate_limit_error_no_retry() {
+    async fn test_execute_non_retryable_error_no_retry() {
+        // Test that non-retryable errors (auth, parse) fail immediately without retry
         let policy = RetryPolicy::default();
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
@@ -278,13 +303,39 @@ mod tests {
             let counter = counter_clone.clone();
             async move {
                 counter.fetch_add(1, Ordering::SeqCst);
-                Err::<(), _>(KalshiError::NetworkError("test error".to_string()))
+                // AuthenticationError should NOT be retried (not transient)
+                Err::<(), _>(KalshiError::AuthenticationError("Invalid credentials".to_string()))
             }
         }).await;
 
         // Should fail immediately without retry
         assert!(result.is_err());
         assert_eq!(counter.load(Ordering::SeqCst), 1);  // Only called once
+    }
+
+    #[tokio::test]
+    async fn test_execute_network_error_with_retry() {
+        // Test that network errors ARE retried (transient failures)
+        let policy = RetryPolicy::new(3, 10, 100);  // Fast retries for testing
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+
+        let result = policy.execute(|| {
+            let counter = counter_clone.clone();
+            async move {
+                let count = counter.fetch_add(1, Ordering::SeqCst);
+                if count < 2 {
+                    // Fail first 2 attempts with network error
+                    Err(KalshiError::NetworkError("Connection closed".to_string()))
+                } else {
+                    // Succeed on 3rd attempt
+                    Ok(42)
+                }
+            }
+        }).await;
+
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(counter.load(Ordering::SeqCst), 3);  // Called 3 times (retried twice)
     }
 
     #[tokio::test]

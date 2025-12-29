@@ -295,10 +295,10 @@ impl CrossMarketDetector {
             return Ok(None);
         }
 
-        // Check if arbitrage exists (YES ask + NO ask < $1.00)
+        // Check if arbitrage exists (YES ask + NO ask <= $1.00)
         let total_cost = yes_ask + no_ask;
-        if total_cost >= rust_decimal::Decimal::ONE {
-            return Ok(None); // No arbitrage
+        if total_cost > rust_decimal::Decimal::ONE {
+            return Ok(None); // Would lose money
         }
 
         // Use min_quantity from config as conservative estimate
@@ -331,6 +331,7 @@ impl CrossMarketDetector {
             );
             tracing::info!("   📍 Check now: https://kalshi.com/markets/{}", market.ticker);
         } else {
+            // Log filtered opportunities at debug level
             tracing::debug!(
                 "Arbitrage found but filtered: {} | Profit: {:.1}% | Qty: {}",
                 market.id.as_str(),

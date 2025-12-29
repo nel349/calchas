@@ -94,6 +94,12 @@ max_capital_per_trade = 75
 # Minimum profit percentage to consider (e.g., 0.04 = 4%)
 min_profit_pct = 0.04
 
+# Maximum profit percentage (anything higher is likely illiquid)
+max_profit_pct = 0.50
+
+# Minimum total cost (YES ask + NO ask) to filter out dead markets
+min_total_cost = 0.30
+
 # Minimum hours before market settlement (avoid execution risk)
 min_hours_to_settlement = 12
 

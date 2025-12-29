@@ -12,6 +12,8 @@
 //! 5. Return ranked list of opportunities
 
 use std::sync::Arc;
+use tokio::sync::Semaphore;
+use futures::future::join_all;
 
 use crate::arbitrage::{ArbitrageCalculator, ArbitrageOpportunity};
 use crate::kalshi::KalshiClient;
@@ -25,9 +27,6 @@ pub enum DetectionError {
 
     /// No markets available
     NoMarketsAvailable,
-
-    /// Invalid orderbook data
-    InvalidOrderbook(String),
 }
 
 impl std::fmt::Display for DetectionError {
@@ -35,7 +34,6 @@ impl std::fmt::Display for DetectionError {
         match self {
             DetectionError::ApiError(msg) => write!(f, "API error: {}", msg),
             DetectionError::NoMarketsAvailable => write!(f, "No markets available to scan"),
-            DetectionError::InvalidOrderbook(msg) => write!(f, "Invalid orderbook: {}", msg),
         }
     }
 }
@@ -71,6 +69,14 @@ impl CrossMarketDetector {
         }
     }
 
+    /// Clone detector for use in concurrent tasks
+    fn clone_for_task(&self) -> Self {
+        CrossMarketDetector {
+            kalshi_client: self.kalshi_client.clone(),
+            calculator: self.calculator.clone(),
+        }
+    }
+
     /// Scan all active markets for arbitrage opportunities
     ///
     /// This is the main detection method. It:
@@ -94,42 +100,94 @@ impl CrossMarketDetector {
             return Err(DetectionError::NoMarketsAvailable);
         }
 
-        tracing::info!("Step 2/3: Scanning {} active markets for arbitrage", markets.len());
-
-        let mut opportunities = Vec::new();
-        let mut scanned = 0;
-        let mut with_arbitrage = 0;
+        tracing::info!("Step 2/3: Scanning {} active markets for arbitrage (10 concurrent)", markets.len());
 
         let total_markets = markets.len();
+        let scan_start = std::time::Instant::now();
 
-        // Check each market for arbitrage
-        for market in &markets {
-            scanned += 1;
+        // Use semaphore to limit concurrency to 10 (stay under 20/sec rate limit)
+        let semaphore = Arc::new(Semaphore::new(10));
+        let scanned = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let with_arbitrage = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
-            if let Some(opportunity) = self.check_market(&market).await? {
-                // Filter by configuration thresholds
-                if self.calculator.passes_filters(&opportunity) {
-                    opportunities.push(opportunity);
-                    with_arbitrage += 1;
+        // Spawn tasks for all markets
+        let mut tasks = Vec::new();
+        for market in markets {
+            let sem = semaphore.clone();
+            let scanned_clone = scanned.clone();
+            let with_arb_clone = with_arbitrage.clone();
+            let detector = self.clone_for_task();
+
+            let task = tokio::spawn(async move {
+                // Acquire permit (blocks if 20 tasks already running)
+                let _permit = sem.acquire().await.unwrap();
+
+                // Check market
+                let result = detector.check_market(&market).await;
+
+                // Update arbitrage counter if we found one
+                if let Ok(Some(ref opp)) = result {
+                    if detector.calculator.passes_filters(opp) {
+                        with_arb_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                 }
-            }
 
-            // Log progress every 50 markets (INFO level so user sees progress)
-            if scanned % 50 == 0 {
-                tracing::info!(
-                    "   Progress: {}/{} markets scanned, {} opportunities found",
-                    scanned,
-                    total_markets,
-                    with_arbitrage
-                );
+                // Update scanned counter
+                let count = scanned_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+
+                // Log progress every 500 markets
+                if count % 500 == 0 {
+                    let arb_count = with_arb_clone.load(std::sync::atomic::Ordering::SeqCst);
+                    tracing::info!(
+                        "   Progress: {}/{} markets scanned, {} opportunities found",
+                        count,
+                        total_markets,
+                        arb_count
+                    );
+                }
+
+                result
+            });
+
+            tasks.push(task);
+        }
+
+        // Wait for all tasks concurrently (not sequentially!)
+        let results = join_all(tasks).await;
+
+        // Collect opportunities from results
+        let mut opportunities = Vec::new();
+        for result in results {
+            match result {
+                Ok(Ok(Some(opportunity))) => {
+                    if self.calculator.passes_filters(&opportunity) {
+                        opportunities.push(opportunity);
+                        // Counter already incremented in task above
+                    }
+                }
+                Ok(Ok(None)) => {
+                    // No arbitrage
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("Failed to check market: {}", e);
+                }
+                Err(e) => {
+                    tracing::warn!("Task failed: {}", e);
+                }
             }
         }
 
+        let final_scanned = scanned.load(std::sync::atomic::Ordering::SeqCst);
+        let final_with_arb = with_arbitrage.load(std::sync::atomic::Ordering::SeqCst);
+        let scan_duration = scan_start.elapsed();
+
         tracing::info!(
-            "Scan complete: {}/{} markets have arbitrage, {} pass filters",
-            with_arbitrage,
-            scanned,
-            opportunities.len()
+            "Scan complete: {}/{} markets have arbitrage, {} pass filters (took {:.1}s, {:.0} markets/sec)",
+            final_with_arb,
+            final_scanned,
+            opportunities.len(),
+            scan_duration.as_secs_f64(),
+            final_scanned as f64 / scan_duration.as_secs_f64()
         );
 
         tracing::info!("Step 3/3: Ranking opportunities by profitability...");
@@ -215,6 +273,8 @@ impl CrossMarketDetector {
 
     /// Check a single market for arbitrage opportunity
     ///
+    /// Uses bid/ask prices from the market data (no extra API call needed!)
+    ///
     /// # Arguments
     ///
     /// * `market` - Market to check
@@ -226,60 +286,24 @@ impl CrossMarketDetector {
         &self,
         market: &Market,
     ) -> Result<Option<ArbitrageOpportunity>, DetectionError> {
-        // Get orderbook from API
-        let orderbook_response = match self
-            .kalshi_client
-            .get_orderbook(market.id.as_str(), None)
-            .await
-        {
-            Ok(response) => response,
-            Err(e) => {
-                // Some markets have empty/null orderbooks - skip them silently
-                tracing::debug!("Skipping market {} (orderbook error: {})", market.id.as_str(), e);
-                return Ok(None);
-            }
-        };
+        // Use bid/ask prices directly from market data (already fetched in get_markets)
+        let yes_ask = market.yes_ask;
+        let no_ask = market.no_ask;
 
-        // Convert to domain model
-        let mut orderbook: crate::models::Orderbook = match orderbook_response.try_into() {
-            Ok(ob) => ob,
-            Err(e) => {
-                tracing::debug!("Skipping market {} (conversion error: {})", market.id.as_str(), e);
-                return Ok(None);
-            }
-        };
-
-        // Fix market_id (conversion sets it to PLACEHOLDER)
-        orderbook.market_id = market.id.clone();
-
-        // Check if arbitrage exists
-        if !self.calculator.has_cross_market_arbitrage(&orderbook) {
+        // Skip markets with zero prices (no liquidity or not trading)
+        if yes_ask == rust_decimal::Decimal::ZERO || no_ask == rust_decimal::Decimal::ZERO {
             return Ok(None);
         }
 
-        // Calculate profit
-        let profit_pct = match self.calculator.calculate_profit_pct(&orderbook) {
-            Some(pct) => pct,
-            None => return Ok(None),
-        };
-
-        // Get available quantity
-        let quantity = self.calculator.available_quantity(&orderbook);
-
-        if quantity == 0 {
-            return Ok(None); // No liquidity
+        // Check if arbitrage exists (YES ask + NO ask < $1.00)
+        let total_cost = yes_ask + no_ask;
+        if total_cost >= rust_decimal::Decimal::ONE {
+            return Ok(None); // No arbitrage
         }
 
-        // Get prices
-        let yes_ask = match orderbook.yes_best_ask() {
-            Some(price) => price,
-            None => return Ok(None),
-        };
-
-        let no_ask = match orderbook.no_best_ask() {
-            Some(price) => price,
-            None => return Ok(None),
-        };
+        // Use min_quantity from config as conservative estimate
+        // Real quantity available would require fetching orderbook (5944 extra API calls)
+        let quantity = self.calculator.config.min_quantity;
 
         // Create opportunity
         let opportunity = ArbitrageOpportunity::new_cross_market(
@@ -291,12 +315,29 @@ impl CrossMarketDetector {
             market.close_time,
         );
 
-        tracing::debug!(
-            "Arbitrage found: {} | Profit: {:.1}% | Qty: {}",
-            market.id.as_str(),
-            profit_pct * rust_decimal::Decimal::from(100),
-            quantity
-        );
+        // Check if it passes filters before logging
+        if self.calculator.passes_filters(&opportunity) {
+            let capital_required = opportunity.capital_required(quantity);
+
+            tracing::info!(
+                "🎯 ARBITRAGE FOUND: {} | YES ${:.2} + NO ${:.2} = ${:.2} | Profit {:.1}% | Qty {} | Capital ${:.2}",
+                market.title.chars().take(50).collect::<String>(),
+                yes_ask,
+                no_ask,
+                opportunity.total_cost,
+                opportunity.profit_pct * rust_decimal::Decimal::from(100),
+                quantity,
+                capital_required
+            );
+            tracing::info!("   📍 Check now: https://kalshi.com/markets/{}", market.ticker);
+        } else {
+            tracing::debug!(
+                "Arbitrage found but filtered: {} | Profit: {:.1}% | Qty: {}",
+                market.id.as_str(),
+                opportunity.profit_pct * rust_decimal::Decimal::from(100),
+                quantity
+            );
+        }
 
         Ok(Some(opportunity))
     }
@@ -371,8 +412,5 @@ mod tests {
 
         let err = DetectionError::NoMarketsAvailable;
         assert_eq!(format!("{}", err), "No markets available to scan");
-
-        let err = DetectionError::InvalidOrderbook("Empty orderbook".to_string());
-        assert_eq!(format!("{}", err), "Invalid orderbook: Empty orderbook");
     }
 }

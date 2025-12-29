@@ -68,8 +68,14 @@ pub struct Market {
     pub status: MarketStatus,
 
     // Pricing (using Decimal for precision)
-    pub yes_price: Decimal,  // Price in cents (0-100)
-    pub no_price: Decimal,   // Price in cents (0-100)
+    pub yes_price: Decimal,  // Midpoint price (average of bid/ask)
+    pub no_price: Decimal,   // Midpoint price (average of bid/ask)
+
+    // Bid/Ask spreads (for arbitrage and order execution)
+    pub yes_bid: Decimal,    // Best bid (what buyers offer)
+    pub yes_ask: Decimal,    // Best ask (what sellers want)
+    pub no_bid: Decimal,     // Best bid for NO
+    pub no_ask: Decimal,     // Best ask for NO
 
     // Liquidity
     pub volume: u64,         // Total contracts traded
@@ -227,6 +233,10 @@ mod tests {
             status: MarketStatus::Active,
             yes_price: dec!(0.24),
             no_price: dec!(0.76),
+            yes_bid: dec!(0.23),
+            yes_ask: dec!(0.25),
+            no_bid: dec!(0.75),
+            no_ask: dec!(0.77),
             volume: 5000,
             open_interest: 2000,
             event_time: Utc::now(),

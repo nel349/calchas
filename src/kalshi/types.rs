@@ -181,10 +181,11 @@ impl From<KalshiMarket> for crate::models::Market {
 
         // Convert prices from cents (i64) to Decimal
         // Kalshi prices are in cents, so divide by 100 for dollar amount
-        let yes_bid = Decimal::new(km.yes_bid, 2);  // 2 decimal places
-        let yes_ask = Decimal::new(km.yes_ask, 2);
-        let no_bid = Decimal::new(km.no_bid, 2);
-        let no_ask = Decimal::new(km.no_ask, 2);
+        // Note: API uses negative values (-1) as sentinel for "no quote available"
+        let yes_bid = Decimal::new(km.yes_bid.max(0), 2);  // 2 decimal places, negatives → 0
+        let yes_ask = Decimal::new(km.yes_ask.max(0), 2);
+        let no_bid = Decimal::new(km.no_bid.max(0), 2);
+        let no_ask = Decimal::new(km.no_ask.max(0), 2);
 
         // Use average of bid/ask as "price" for generic model
         let yes_price = (yes_bid + yes_ask) / Decimal::from(2);
@@ -199,6 +200,10 @@ impl From<KalshiMarket> for crate::models::Market {
             status,
             yes_price,
             no_price,
+            yes_bid,
+            yes_ask,
+            no_bid,
+            no_ask,
             // Convert negative sentinel values to 0
             volume: km.volume.max(0) as u64,
             open_interest: km.open_interest.max(0) as u64,
@@ -316,6 +321,33 @@ mod tests {
 
         // Check status mapping
         assert_eq!(generic_market.status, crate::models::MarketStatus::Active);
+    }
+
+    #[test]
+    fn test_negative_prices_converted_to_zero() {
+        // Test that negative sentinel values (-1) are converted to 0
+        // API uses -1 to indicate "no quote available"
+        let mut market = create_test_kalshi_market();
+        market.yes_bid = -1;   // No quote
+        market.yes_ask = -1;   // No quote
+        market.no_bid = 50;    // Has quote: 50 cents
+        market.no_ask = 52;    // Has quote: 52 cents
+
+        let converted: crate::models::Market = market.into();
+
+        // Negative values should be converted to 0
+        assert_eq!(converted.yes_bid, Decimal::ZERO);
+        assert_eq!(converted.yes_ask, Decimal::ZERO);
+
+        // Positive values should work normally
+        assert_eq!(converted.no_bid, Decimal::new(50, 2));  // $0.50
+        assert_eq!(converted.no_ask, Decimal::new(52, 2));  // $0.52
+
+        // yes_price should be 0 (avg of 0 and 0)
+        assert_eq!(converted.yes_price, Decimal::ZERO);
+
+        // no_price should be 0.51 (avg of 0.50 and 0.52)
+        assert_eq!(converted.no_price, Decimal::new(51, 2));
     }
 
     #[test]

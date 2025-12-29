@@ -7,7 +7,6 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::arbitrage::ArbitrageOpportunity;
-use crate::models::Orderbook;
 
 /// Configuration for arbitrage opportunity filtering
 #[derive(Debug, Clone)]
@@ -16,6 +15,16 @@ pub struct ArbitrageConfig {
     ///
     /// Should cover fees (~3% round-trip) + buffer
     pub min_profit_pct: Decimal,
+
+    /// Maximum profit percentage (e.g., 0.50 = 50%)
+    ///
+    /// Filters out illiquid markets with unrealistic spreads
+    pub max_profit_pct: Decimal,
+
+    /// Minimum total cost (YES ask + NO ask)
+    ///
+    /// Filters out dead/abandoned markets with penny bids
+    pub min_total_cost: Decimal,
 
     /// Minimum quantity available (contracts)
     ///
@@ -39,6 +48,12 @@ impl Default for ArbitrageConfig {
             // Covers 3% fees + 0.5% buffer
             min_profit_pct: Decimal::new(35, 3), // 0.035 = 3.5%
 
+            // Filter out illiquid markets
+            max_profit_pct: Decimal::new(50, 2), // 0.50 = 50%
+
+            // Filter out dead markets with penny bids
+            min_total_cost: Decimal::new(30, 2), // 0.30 = $0.30
+
             // Enough for meaningful trade size
             min_quantity: 50,
 
@@ -56,6 +71,8 @@ impl ArbitrageConfig {
     pub fn for_small_capital() -> Self {
         ArbitrageConfig {
             min_profit_pct: Decimal::new(40, 3), // 4% - be selective
+            max_profit_pct: Decimal::new(50, 2), // 50% max
+            min_total_cost: Decimal::new(30, 2), // $0.30 min
             min_quantity: 40, // Can trade smaller sizes
             min_hours_to_settlement: 12, // More flexible on timing
             max_capital_per_trade: Decimal::new(75, 0), // $75 max
@@ -66,6 +83,8 @@ impl ArbitrageConfig {
     pub fn for_medium_capital() -> Self {
         ArbitrageConfig {
             min_profit_pct: Decimal::new(30, 3), // 3% - standard
+            max_profit_pct: Decimal::new(50, 2), // 50% max
+            min_total_cost: Decimal::new(30, 2), // $0.30 min
             min_quantity: 50,
             min_hours_to_settlement: 24,
             max_capital_per_trade: Decimal::new(150, 0), // $150 max
@@ -76,6 +95,8 @@ impl ArbitrageConfig {
     pub fn for_large_capital() -> Self {
         ArbitrageConfig {
             min_profit_pct: Decimal::new(25, 3), // 2.5% - take more opportunities
+            max_profit_pct: Decimal::new(50, 2), // 50% max
+            min_total_cost: Decimal::new(30, 2), // $0.30 min
             min_quantity: 75,
             min_hours_to_settlement: 48, // Prefer longer-term stability
             max_capital_per_trade: Decimal::new(300, 0), // $300 max
@@ -84,8 +105,9 @@ impl ArbitrageConfig {
 }
 
 /// Arbitrage opportunity calculator and filter
+#[derive(Clone)]
 pub struct ArbitrageCalculator {
-    config: ArbitrageConfig,
+    pub config: ArbitrageConfig,
 }
 
 impl ArbitrageCalculator {
@@ -99,76 +121,6 @@ impl ArbitrageCalculator {
         ArbitrageCalculator {
             config: ArbitrageConfig::default(),
         }
-    }
-
-    /// Check if an orderbook presents a cross-market arbitrage opportunity
-    ///
-    /// Returns true if YES ask + NO ask < (1.00 - fees)
-    ///
-    /// # Arguments
-    ///
-    /// * `orderbook` - Market orderbook data
-    ///
-    /// # Returns
-    ///
-    /// True if arbitrage opportunity exists
-    pub fn has_cross_market_arbitrage(&self, orderbook: &Orderbook) -> bool {
-        let yes_ask = match orderbook.yes_best_ask() {
-            Some(price) => price,
-            None => return false,
-        };
-
-        let no_ask = match orderbook.no_best_ask() {
-            Some(price) => price,
-            None => return false,
-        };
-
-        let total_cost = yes_ask + no_ask;
-
-        // Arbitrage exists if total cost < (1.00 - min profit threshold)
-        // Example: If min profit is 3%, then total cost must be < 0.97
-        total_cost < (Decimal::ONE - self.config.min_profit_pct)
-    }
-
-    /// Calculate actual profit percentage from orderbook
-    ///
-    /// # Arguments
-    ///
-    /// * `orderbook` - Market orderbook data
-    ///
-    /// # Returns
-    ///
-    /// Profit percentage (e.g., 0.053 = 5.3%), or None if no arbitrage
-    pub fn calculate_profit_pct(&self, orderbook: &Orderbook) -> Option<Decimal> {
-        let yes_ask = orderbook.yes_best_ask()?;
-        let no_ask = orderbook.no_best_ask()?;
-
-        let total_cost = yes_ask + no_ask;
-
-        if total_cost >= Decimal::ONE {
-            return None; // No arbitrage
-        }
-
-        let profit = Decimal::ONE - total_cost;
-        let profit_pct = profit / total_cost;
-
-        Some(profit_pct)
-    }
-
-    /// Get available quantity for arbitrage (minimum of YES and NO liquidity)
-    ///
-    /// # Arguments
-    ///
-    /// * `orderbook` - Market orderbook data
-    ///
-    /// # Returns
-    ///
-    /// Maximum quantity that can be traded (limited by smaller side)
-    pub fn available_quantity(&self, orderbook: &Orderbook) -> u64 {
-        let yes_qty = orderbook.yes_best_ask_quantity();
-        let no_qty = orderbook.no_best_ask_quantity();
-
-        std::cmp::min(yes_qty, no_qty)
     }
 
     /// Filter opportunity based on configuration thresholds
@@ -187,8 +139,18 @@ impl ArbitrageCalculator {
     ///
     /// True if opportunity passes all filters
     pub fn passes_filters(&self, opportunity: &ArbitrageOpportunity) -> bool {
-        // Check profit threshold
+        // Check minimum profit threshold
         if !opportunity.meets_threshold(self.config.min_profit_pct) {
+            return false;
+        }
+
+        // Check maximum profit (filter illiquid markets)
+        if opportunity.profit_pct > self.config.max_profit_pct {
+            return false;
+        }
+
+        // Check minimum total cost (filter dead markets)
+        if opportunity.total_cost < self.config.min_total_cost {
             return false;
         }
 
@@ -295,81 +257,16 @@ impl ArbitrageCalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{MarketId, OrderbookLevel};
+    use crate::models::MarketId;
     use chrono::Utc;
     use rust_decimal_macros::dec;
-
-    fn create_test_orderbook(yes_ask: Decimal, no_ask: Decimal, qty: u64) -> Orderbook {
-        Orderbook {
-            market_id: MarketId::new("TEST".to_string()),
-            yes_asks: vec![OrderbookLevel {
-                price: yes_ask,
-                quantity: qty,
-            }],
-            no_asks: vec![OrderbookLevel {
-                price: no_ask,
-                quantity: qty,
-            }],
-        }
-    }
-
-    #[test]
-    fn test_has_cross_market_arbitrage_true() {
-        let calculator = ArbitrageCalculator::with_defaults();
-        let orderbook = create_test_orderbook(dec!(0.48), dec!(0.47), 100);
-
-        // YES 0.48 + NO 0.47 = 0.95 < 0.965 (1.00 - 3.5% threshold)
-        assert!(calculator.has_cross_market_arbitrage(&orderbook));
-    }
-
-    #[test]
-    fn test_has_cross_market_arbitrage_false() {
-        let calculator = ArbitrageCalculator::with_defaults();
-        let orderbook = create_test_orderbook(dec!(0.50), dec!(0.49), 100);
-
-        // YES 0.50 + NO 0.49 = 0.99 > 0.965 (1.00 - 3.5% threshold)
-        assert!(!calculator.has_cross_market_arbitrage(&orderbook));
-    }
-
-    #[test]
-    fn test_calculate_profit_pct() {
-        let calculator = ArbitrageCalculator::with_defaults();
-        let orderbook = create_test_orderbook(dec!(0.48), dec!(0.47), 100);
-
-        let profit_pct = calculator.calculate_profit_pct(&orderbook).unwrap();
-
-        // (1.00 - 0.95) / 0.95 = 0.0526... ≈ 5.26%
-        assert!(profit_pct > dec!(0.052));
-        assert!(profit_pct < dec!(0.053));
-    }
-
-    #[test]
-    fn test_available_quantity() {
-        let calculator = ArbitrageCalculator::with_defaults();
-
-        // Equal quantity on both sides
-        let orderbook1 = create_test_orderbook(dec!(0.48), dec!(0.47), 100);
-        assert_eq!(calculator.available_quantity(&orderbook1), 100);
-
-        // Different quantities - should return minimum
-        let orderbook2 = Orderbook {
-            market_id: MarketId::new("TEST".to_string()),
-            yes_asks: vec![OrderbookLevel {
-                price: dec!(0.48),
-                quantity: 75,
-            }],
-            no_asks: vec![OrderbookLevel {
-                price: dec!(0.47),
-                quantity: 100,
-            }],
-        };
-        assert_eq!(calculator.available_quantity(&orderbook2), 75);
-    }
 
     #[test]
     fn test_passes_filters_all_pass() {
         let config = ArbitrageConfig {
             min_profit_pct: dec!(0.03), // 3%
+            max_profit_pct: dec!(0.50), // 50%
+            min_total_cost: dec!(0.30), // $0.30
             min_quantity: 50,
             min_hours_to_settlement: 24,
             max_capital_per_trade: dec!(100.00),
@@ -381,7 +278,7 @@ mod tests {
             MarketId::new("TEST".to_string()),
             "Test".to_string(),
             dec!(0.48),
-            dec!(0.47), // 5.26% profit
+            dec!(0.47), // 5.26% profit, total $0.95
             75,         // qty
             settlement,
         );
@@ -393,6 +290,8 @@ mod tests {
     fn test_passes_filters_profit_too_low() {
         let config = ArbitrageConfig {
             min_profit_pct: dec!(0.06), // 6% required
+            max_profit_pct: dec!(0.50), // 50%
+            min_total_cost: dec!(0.30), // $0.30
             min_quantity: 50,
             min_hours_to_settlement: 24,
             max_capital_per_trade: dec!(100.00),
@@ -416,6 +315,8 @@ mod tests {
     fn test_passes_filters_insufficient_liquidity() {
         let config = ArbitrageConfig {
             min_profit_pct: dec!(0.03),
+            max_profit_pct: dec!(0.50),
+            min_total_cost: dec!(0.30),
             min_quantity: 100, // Need 100 contracts
             min_hours_to_settlement: 24,
             max_capital_per_trade: dec!(100.00),
@@ -439,6 +340,8 @@ mod tests {
     fn test_passes_filters_settlement_too_soon() {
         let config = ArbitrageConfig {
             min_profit_pct: dec!(0.03),
+            max_profit_pct: dec!(0.50),
+            min_total_cost: dec!(0.30),
             min_quantity: 50,
             min_hours_to_settlement: 48, // Need 48 hours
             max_capital_per_trade: dec!(100.00),

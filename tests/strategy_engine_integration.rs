@@ -24,6 +24,10 @@ fn create_test_markets() -> Vec<Market> {
             status: MarketStatus::Active,
             yes_price: dec!(0.15),  // Cheap - matches underdog_hunter filter
             no_price: dec!(0.85),
+            yes_bid: dec!(0.14),
+            yes_ask: dec!(0.16),
+            no_bid: dec!(0.84),
+            no_ask: dec!(0.86),
             volume: 5000,  // Above min_volume (1000)
             open_interest: 2000,
             event_time: Utc::now() + Duration::hours(24),  // In time window (2-48 hours)
@@ -41,6 +45,10 @@ fn create_test_markets() -> Vec<Market> {
             status: MarketStatus::Active,
             yes_price: dec!(0.75),  // Too expensive - outside price range
             no_price: dec!(0.25),  // This is cheap but strategy looks at Yes side for UnderdogOnly
+            yes_bid: dec!(0.74),
+            yes_ask: dec!(0.76),
+            no_bid: dec!(0.24),
+            no_ask: dec!(0.26),
             volume: 3000,
             open_interest: 1500,
             event_time: Utc::now() + Duration::hours(12),
@@ -58,6 +66,10 @@ fn create_test_markets() -> Vec<Market> {
             status: MarketStatus::Active,
             yes_price: dec!(0.18),  // Would match price, but wrong category
             no_price: dec!(0.82),
+            yes_bid: dec!(0.17),
+            yes_ask: dec!(0.19),
+            no_bid: dec!(0.81),
+            no_ask: dec!(0.83),
             volume: 10000,
             open_interest: 5000,
             event_time: Utc::now() + Duration::hours(36),
@@ -75,6 +87,10 @@ fn create_test_markets() -> Vec<Market> {
             status: MarketStatus::Active,
             yes_price: dec!(0.12),  // Good price
             no_price: dec!(0.88),
+            yes_bid: dec!(0.11),
+            yes_ask: dec!(0.13),
+            no_bid: dec!(0.87),
+            no_ask: dec!(0.89),
             volume: 500,  // Below min_volume (1000)
             open_interest: 200,
             event_time: Utc::now() + Duration::hours(6),
@@ -92,6 +108,10 @@ fn create_test_markets() -> Vec<Market> {
             status: MarketStatus::Active,
             yes_price: dec!(0.14),
             no_price: dec!(0.86),
+            yes_bid: dec!(0.13),
+            yes_ask: dec!(0.15),
+            no_bid: dec!(0.85),
+            no_ask: dec!(0.87),
             volume: 2000,
             open_interest: 1000,
             event_time: Utc::now() + Duration::hours(100),  // Outside time window (2-48 hours)
@@ -161,6 +181,10 @@ fn test_no_signals_when_no_matches() {
             status: MarketStatus::Active,
             yes_price: dec!(0.15),
             no_price: dec!(0.85),
+            yes_bid: dec!(0.14),
+            yes_ask: dec!(0.16),
+            no_bid: dec!(0.84),
+            no_ask: dec!(0.86),
             volume: 5000,
             open_interest: 2000,
             event_time: Utc::now() + Duration::hours(24),
@@ -192,6 +216,10 @@ fn test_volatility_hedge_generates_two_signals() {
             status: MarketStatus::Active,
             yes_price: dec!(0.48),  // In range 0.30-0.70
             no_price: dec!(0.52),   // Both sides in range
+            yes_bid: dec!(0.47),
+            yes_ask: dec!(0.49),
+            no_bid: dec!(0.51),
+            no_ask: dec!(0.53),
             volume: 10000,  // Above min_volume (5000)
             open_interest: 5000,  // Above min_open_interest (2000)
             event_time: Utc::now() + Duration::hours(3),  // In time window (1-12 hours)
@@ -324,6 +352,10 @@ fn test_momentum_filter_integration() {
         status: MarketStatus::Active,
         yes_price: dec!(0.50),
         no_price: dec!(0.50),
+        yes_bid: dec!(0.49),
+        yes_ask: dec!(0.51),
+        no_bid: dec!(0.49),
+        no_ask: dec!(0.51),
         volume: 5000,
         open_interest: 2000,
         event_time: Utc::now() + Duration::hours(24),
@@ -341,6 +373,10 @@ fn test_momentum_filter_integration() {
         status: MarketStatus::Active,
         yes_price: dec!(0.50),
         no_price: dec!(0.50),
+        yes_bid: dec!(0.49),
+        yes_ask: dec!(0.51),
+        no_bid: dec!(0.49),
+        no_ask: dec!(0.51),
         volume: 5000,
         open_interest: 2000,
         event_time: Utc::now() + Duration::hours(24),

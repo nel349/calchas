@@ -139,6 +139,8 @@ impl AppState {
         // Initialize arbitrage detector with configuration from TOML
         let arb_config = ArbitrageConfig {
             min_profit_pct: config.arbitrage.min_profit_pct,
+            max_profit_pct: config.arbitrage.max_profit_pct,
+            min_total_cost: config.arbitrage.min_total_cost,
             min_quantity: config.arbitrage.min_quantity,
             min_hours_to_settlement: config.arbitrage.min_hours_to_settlement,
             max_capital_per_trade: config.arbitrage.max_capital_per_trade,

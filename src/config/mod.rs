@@ -184,6 +184,14 @@ pub struct ArbitrageConfig {
     #[serde(default = "default_min_profit_pct")]
     pub min_profit_pct: rust_decimal::Decimal,
 
+    /// Maximum profit percentage (filter out illiquid markets)
+    #[serde(default = "default_max_profit_pct")]
+    pub max_profit_pct: rust_decimal::Decimal,
+
+    /// Minimum total cost (YES ask + NO ask) to filter dead markets
+    #[serde(default = "default_min_total_cost")]
+    pub min_total_cost: rust_decimal::Decimal,
+
     /// Minimum hours before settlement
     #[serde(default = "default_min_hours_to_settlement")]
     pub min_hours_to_settlement: i64,
@@ -209,6 +217,14 @@ fn default_min_profit_pct() -> rust_decimal::Decimal {
     rust_decimal::Decimal::new(4, 2) // 0.04 = 4%
 }
 
+fn default_max_profit_pct() -> rust_decimal::Decimal {
+    rust_decimal::Decimal::new(50, 2) // 0.50 = 50%
+}
+
+fn default_min_total_cost() -> rust_decimal::Decimal {
+    rust_decimal::Decimal::new(30, 2) // 0.30 = $0.30
+}
+
 fn default_min_hours_to_settlement() -> i64 {
     12
 }
@@ -227,6 +243,8 @@ impl Default for ArbitrageConfig {
             starting_capital: default_starting_capital(),
             max_capital_per_trade: default_max_capital_per_trade(),
             min_profit_pct: default_min_profit_pct(),
+            max_profit_pct: default_max_profit_pct(),
+            min_total_cost: default_min_total_cost(),
             min_hours_to_settlement: default_min_hours_to_settlement(),
             max_days_to_settlement: default_max_days_to_settlement(),
             min_quantity: default_min_quantity(),

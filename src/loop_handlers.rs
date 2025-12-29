@@ -109,7 +109,11 @@ pub async fn fetch_markets_by_ids(
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     use chrono::Utc;
     let now = Utc::now();
-    tracing::info!("Fetching {} position markets...", market_ids.len());
+
+    // Deduplicate market IDs (e.g., "Both" strategy creates 2 positions per market)
+    let market_id_set: std::collections::HashSet<_> = market_ids.iter().cloned().collect();
+    tracing::info!("Fetching {} unique position markets ({} total positions)...",
+        market_id_set.len(), market_ids.len());
 
     // Use same time window as fetch_all_markets for consistency
     let min_close = now + chrono::Duration::minutes(min_time_minutes as i64);
@@ -119,20 +123,18 @@ pub async fn fetch_markets_by_ids(
         min_close.format("%Y-%m-%d %H:%M"),
         max_close.format("%Y-%m-%d %H:%M")
     );
-
-    let market_id_set: std::collections::HashSet<_> = market_ids.iter().cloned().collect();
     let mut found_markets = Vec::new();
     let mut cursor: Option<String> = None;
-    let max_pages = 30;  // Search up to 30k markets (supports up to 1000 positions)
+    let max_pages = 5;  // Limit search to 5 pages max (5000 markets) - if not found, use stale prices
     let mut page_count = 0;
 
     loop {
         let request = GetMarketsRequest {
             limit: Some(1000),
             cursor: cursor.clone(),
-            status: Some("open".to_string()),
+            status: None,  // Allow ALL statuses when fetching position markets
             series_ticker: None,
-            min_close_ts: Some(min_close.timestamp()),
+            min_close_ts: Some(min_close.timestamp()),  // Keep time filters to avoid searching ancient history
             max_close_ts: Some(max_close.timestamp()),
         };
 
@@ -160,8 +162,8 @@ pub async fn fetch_markets_by_ids(
         found_markets.extend(batch);
         page_count += 1;
 
-        // Stop if found all or hit limit
-        if found_markets.len() >= market_ids.len() || page_count >= max_pages {
+        // Stop if found all unique markets or hit page limit
+        if found_markets.len() >= market_id_set.len() || page_count >= max_pages {
             break;
         }
 
@@ -176,7 +178,7 @@ pub async fn fetch_markets_by_ids(
         }
     }
 
-    tracing::info!("  Found {}/{} position markets", found_markets.len(), market_ids.len());
+    tracing::info!("  Found {}/{} unique position markets", found_markets.len(), market_id_set.len());
     Ok(found_markets)
 }
 
@@ -301,6 +303,7 @@ async fn check_orderbook_acceptable(
 ///
 /// * `state` - Application state (mutable)
 /// * `signal` - Entry signal to process
+/// * `market` - Market data for this signal
 ///
 /// # Returns
 ///
@@ -308,7 +311,18 @@ async fn check_orderbook_acceptable(
 pub async fn process_entry_signal(
     state: &mut AppState,
     signal: EntrySignal,
+    market: &crate::models::Market,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if market is still open for trading
+    if !market.is_open() {
+        tracing::debug!(
+            "  ⏸️  Market {} is not active (status: {:?}), skipping entry",
+            market.ticker,
+            market.status
+        );
+        return Ok(()); // Not an error, just skip closed markets
+    }
+
     // Get strategy for this signal
     let strategy = state.strategies.get(&signal.strategy_id)
         .ok_or("Strategy not found for signal")?;
@@ -391,6 +405,17 @@ pub async fn process_entry_signal(
                 contracts_decimal.floor().to_u64().unwrap_or(0)
             }
         };
+
+        // Validate quantity is positive (prevent zero-quantity orders)
+        if contracts == 0 {
+            tracing::warn!(
+                "  ⚠️  Insufficient capital for {} - calculated 0 contracts (price: ${:.2}, position size: {})",
+                signal.market_ticker,
+                signal.recommended_price,
+                signal.position_size
+            );
+            return Ok(()); // Not an error, just skip insufficient capital
+        }
 
         let mut order = Order::new(
             order_id,

@@ -146,12 +146,21 @@ impl RiskManager {
 
         let risk_limits = &strategy.risk_limits;
 
-        // Check 1: Duplicate market (check FIRST - prevent multiple positions on same market)
+        // Check 1: Duplicate market+side (allow same market with different side for "Both" strategy)
         for position in positions.values() {
             if position.market_id == signal.market_id {
-                return RiskDecision::Rejected(RejectionReason::DuplicateMarket {
-                    market_id: signal.market_id.0.clone(),
-                });
+                // Check if same side - only reject if both market AND side match
+                let same_side = match (&position.side, &signal.side) {
+                    (crate::models::PositionSide::Yes, crate::strategy::signals::SignalSide::Yes) => true,
+                    (crate::models::PositionSide::No, crate::strategy::signals::SignalSide::No) => true,
+                    _ => false,
+                };
+
+                if same_side {
+                    return RiskDecision::Rejected(RejectionReason::DuplicateMarket {
+                        market_id: signal.market_id.0.clone(),
+                    });
+                }
             }
         }
 

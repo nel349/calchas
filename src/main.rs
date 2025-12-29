@@ -131,8 +131,8 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
 
                     // 3. Process entry signals
                     // Risk manager will prevent duplicates and enforce position limits
-                    for (signal, _market) in signal_market_pairs {
-                        if let Err(e) = process_entry_signal(state, signal).await {
+                    for (signal, market) in signal_market_pairs {
+                        if let Err(e) = process_entry_signal(state, signal, &market).await {
                             tracing::error!("Failed to process entry signal: {}", e);
                         }
                     }

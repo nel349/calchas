@@ -195,10 +195,30 @@
 - [x] Trade recording and historical analysis
 - [x] 80 total Phase 4 unit tests passing (4+14+16+15+7+24)
 
+**Phase 4 - Strategy Features (Partial Implementation):**
+- ⚠️ `trailing_stop_activation_pct` - Defined in strategy JSON but not implemented (trailing stops activate immediately)
+- ⚠️ `max_position_loss_usd` - Validated on load but never enforced (positions can exceed per-position loss limits)
+- ⚠️ `max_spread_cents` - Works but checked at runtime in event loop, not in main evaluator filter pipeline
+- ⚠️ `min_best_price_quantity` - Works but checked at runtime in event loop, not in main evaluator filter pipeline
+
+**Strategy Implementation Status:**
+- ✅ 24/28 strategy capabilities fully implemented and tested
+- ⚠️ 2/28 capabilities defined but not enforced (trailing activation, max position loss)
+- ⚠️ 2/28 capabilities work but outside main filter pipeline (spread, liquidity checks)
+- 📝 See architecture review output for full implementation matrix
+
+**Active Strategies:**
+- ✅ `momentum_directional.json` - ENABLED (true trend-following, fixes hybrid_momentum flaws)
+- ❌ `hybrid_momentum.json` - DEPRECATED (Both side + momentum contradiction, replaced)
+- ❌ `volatility_straddle.json` - DISABLED (pure volatility play, optional)
+- ❌ `mean_reversion.json` - DISABLED (contrarian fading, optional)
+
 ### ❌ What Doesn't Work Yet
 - [ ] Integrated application (runtime supervisor and tasks)
 - [ ] Concurrent task orchestration with channels
 - [ ] Full end-to-end position lifecycle demo
+- [ ] `trailing_stop_activation_pct` enforcement (needs implementation in position_manager.rs)
+- [ ] `max_position_loss_usd` enforcement (needs implementation in exit_manager.rs)
 - [ ] Storing data in database
 - [ ] Web interface
 - [ ] Real-time updates

@@ -1,0 +1,42 @@
+{
+  "id": "mean-reversion",
+  "name": "Mean Reversion (Contrarian)",
+  "description": "Fades strong momentum moves. When prices spike too far too fast, bets on reversion to mean. Buys the expensive side (betting it will drop back).",
+  "version": "1.0.0",
+  "enabled": false,
+  "filters": {
+    "categories": null,
+    "exclude_categories": null,
+    "min_price": "0.70",
+    "max_price": "0.95",
+    "min_volume": 20000,
+    "min_open_interest": 5000,
+    "min_time_to_event_minutes": null,
+    "max_time_to_event_minutes": null,
+    "min_momentum_pct": "2.0",
+    "momentum_lookback_minutes": 60,
+    "max_spread_cents": "0.04",
+    "min_best_price_quantity": 150
+  },
+  "entry_rules": {
+    "side": "ExpensiveSide",
+    "position_size": 5,
+    "position_size_unit": "Dollars",
+    "order_type": "Market",
+    "limit_price_offset": null
+  },
+  "exit_rules": {
+    "take_profit_pct": "8",
+    "stop_loss_pct": "4",
+    "trailing_stop_pct": null,
+    "trailing_stop_activation_pct": null,
+    "max_hold_time_minutes": 180,
+    "exit_order_type": "Market"
+  },
+  "risk_limits": {
+    "max_concurrent_positions": 10,
+    "max_daily_loss_usd": "300.00",
+    "max_position_loss_usd": "40.00",
+    "loss_cooldown_minutes": 120
+  }
+}

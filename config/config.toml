@@ -11,6 +11,16 @@
 # Can be overridden with: CALCHAS__RUNTIME__STRATEGY_DIR
 strategy_dir = "strategies/"
 
+# Default minimum time to event in minutes (when strategy doesn't specify)
+# Can be overridden with: CALCHAS__RUNTIME__DEFAULT_MIN_TIME_MINUTES
+# Default: 0 (allow live events)
+default_min_time_minutes = 0
+
+# Default maximum time to event in minutes (when strategy doesn't specify)
+# Can be overridden with: CALCHAS__RUNTIME__DEFAULT_MAX_TIME_MINUTES
+# Default: 43200 (30 days)
+default_max_time_minutes = 43200
+
 
 # =============================================================================
 # KALSHI API CONFIGURATION (Phase 2)

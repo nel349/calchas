@@ -74,6 +74,24 @@ pub struct StrategyFilters {
     // Timing filters (in minutes)
     pub min_time_to_event_minutes: Option<u32>,
     pub max_time_to_event_minutes: Option<u32>,
+
+    // Momentum filters
+    /// Minimum price movement percentage required in lookback period
+    /// Example: 2.0 = price must have moved at least 2% in last hour
+    pub min_momentum_pct: Option<Decimal>,
+
+    /// Lookback period for momentum calculation (in minutes)
+    /// Example: 60 = check price change over last hour
+    pub momentum_lookback_minutes: Option<u32>,
+
+    // Orderbook filters (checked before entry execution)
+    /// Maximum spread (in cents) to accept
+    /// Example: 0.05 = reject if spread > 5 cents
+    pub max_spread_cents: Option<Decimal>,
+
+    /// Minimum liquidity at best price (number of contracts)
+    /// Example: 50 = reject if fewer than 50 contracts available
+    pub min_best_price_quantity: Option<u64>,
 }
 
 // =============================================================================
@@ -232,6 +250,10 @@ mod tests {
                 min_open_interest: None,
                 min_time_to_event_minutes: Some(120),
                 max_time_to_event_minutes: Some(2880),
+                min_momentum_pct: None,
+                momentum_lookback_minutes: None,
+                max_spread_cents: None,
+                min_best_price_quantity: None,
             },
             entry_rules: EntryRules {
                 side: EntrySide::CheaperSide,

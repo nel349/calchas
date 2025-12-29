@@ -38,6 +38,7 @@ sha2 = "0.10"
 base64 = "0.21"
 pem = "3.0"
 rand = "0.8"
+async-trait = "0.1.89"
 
 [dev-dependencies]
 # Temporary files for testing

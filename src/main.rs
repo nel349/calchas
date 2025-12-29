@@ -74,11 +74,23 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
                 let has_capacity = current_positions < max_concurrent;
 
                 // 1. Fetch markets based on capacity
-                let markets = if has_capacity {
+                let all_markets = if has_capacity {
                     // We have capacity - scan ALL markets for new opportunities
                     tracing::info!("Position capacity: {}/{} - Scanning for entries", current_positions, max_concurrent);
-                    match fetch_all_markets(&state.kalshi_client).await {
-                        Ok(m) => m,
+                    match fetch_all_markets(
+                        &state.kalshi_client,
+                        state.time_range_config.min_time_to_event_minutes,
+                        state.time_range_config.max_time_to_event_minutes,
+                    ).await {
+                        Ok(m) => {
+                            // Record prices for momentum tracking
+                            for market in &m {
+                                state.price_tracker.record_price(&market.id, market.yes_price, market.no_price);
+                            }
+                            tracing::info!("📊 Recorded prices for {} markets, tracker now tracking {} markets",
+                                m.len(), state.price_tracker.market_count());
+                            m
+                        },
                         Err(e) => {
                             tracing::error!("Failed to scan markets: {}", e);
                             continue;
@@ -96,7 +108,12 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
                         continue;
                     }
 
-                    match fetch_markets_by_ids(&state.kalshi_client, &market_ids).await {
+                    match fetch_markets_by_ids(
+                        &state.kalshi_client,
+                        &market_ids,
+                        state.time_range_config.min_time_to_event_minutes,
+                        state.time_range_config.max_time_to_event_minutes,
+                    ).await {
                         Ok(m) => m,
                         Err(e) => {
                             tracing::error!("Failed to fetch position markets: {}", e);
@@ -107,15 +124,15 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
 
                 // 2. Evaluate strategies (only if we have capacity)
                 if has_capacity {
-                    let signal_market_pairs = evaluate_strategies(state, &markets);
+                    let signal_market_pairs = evaluate_strategies(state, &all_markets);
                     if !signal_market_pairs.is_empty() {
                         tracing::info!("Generated {} entry signals", signal_market_pairs.len());
                     }
 
                     // 3. Process entry signals
                     // Risk manager will prevent duplicates and enforce position limits
-                    for (signal, _market) in signal_market_pairs {
-                        if let Err(e) = process_entry_signal(state, signal).await {
+                    for (signal, market) in signal_market_pairs {
+                        if let Err(e) = process_entry_signal(state, signal, &market).await {
                             tracing::error!("Failed to process entry signal: {}", e);
                         }
                     }
@@ -123,13 +140,20 @@ async fn run_trading_loop(state: &mut AppState) -> Result<(), Box<dyn std::error
 
                 // 4. Update position prices and check exits (ALWAYS)
                 if !state.positions.is_empty() {
-                    if let Err(e) = update_and_check_positions(state, &markets).await {
+                    if let Err(e) = update_and_check_positions(state, &all_markets).await {
                         tracing::error!("Failed to update positions: {}", e);
                     }
                 }
 
                 // 5. Print status
                 print_status(state);
+
+                // 6. Cleanup old price data periodically (every 100 iterations = ~10 minutes)
+                if iteration % 100 == 0 {
+                    tracing::debug!("Cleaning up old price tracker data...");
+                    state.price_tracker.cleanup_all();
+                    tracing::debug!("Price tracker now tracking {} markets", state.price_tracker.market_count());
+                }
 
                 tracing::info!("");
             }

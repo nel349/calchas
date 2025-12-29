@@ -15,17 +15,18 @@
 //! let strategy = StrategyLoader::load("strategies/underdog_hunter.json")?;
 //! let markets: Vec<Market> = vec![/* fetch from API */];
 //!
-//! let signals = StrategyEvaluator::evaluate(&markets, &strategy)?;
+//! let signals = StrategyEvaluator::evaluate(&markets, &strategy, None)?;
 //! println!("Generated {} signals", signals.len());
 //! # Ok(())
 //! # }
 //! ```
 
-use chrono::Utc;
+use chrono::{Utc, Duration};
 use rust_decimal::Decimal;
 
 use crate::models::strategy::{EntrySide, StrategyFilters};
 use crate::models::{Market, MarketCategory, Strategy, StrategyId};
+use crate::trading::PriceTracker;
 use super::signals::EntrySignal;
 
 // =============================================================================
@@ -40,6 +41,17 @@ pub enum EvaluationError {
 
     /// Invalid strategy configuration
     InvalidStrategy(String),
+}
+
+/// Result of momentum check (for detailed filtering stats)
+#[derive(Debug, Clone, Copy)]
+enum MomentumCheckResult {
+    /// Momentum check passed
+    Pass,
+    /// No price data available (<2 snapshots)
+    NoData,
+    /// Has data but movement is insufficient
+    InsufficientMovement,
 }
 
 impl std::fmt::Display for EvaluationError {
@@ -77,6 +89,7 @@ impl StrategyEvaluator {
     ///
     /// * `markets` - Slice of markets to evaluate
     /// * `strategy` - Strategy to evaluate against
+    /// * `price_tracker` - Price tracker for momentum analysis (optional)
     ///
     /// # Returns
     ///
@@ -92,7 +105,7 @@ impl StrategyEvaluator {
     /// let strategy = StrategyLoader::load("strategies/underdog_hunter.json")?;
     /// let markets: Vec<Market> = vec![/* ... */];
     ///
-    /// let signals = StrategyEvaluator::evaluate(&markets, &strategy)?;
+    /// let signals = StrategyEvaluator::evaluate(&markets, &strategy, None)?;
     /// println!("Found {} signals", signals.len());
     /// # Ok(())
     /// # }
@@ -100,6 +113,7 @@ impl StrategyEvaluator {
     pub fn evaluate(
         markets: &[Market],
         strategy: &Strategy,
+        price_tracker: Option<&PriceTracker>,
     ) -> Result<Vec<EntrySignal>, EvaluationError> {
         // Check if strategy is active
         if !strategy.is_active() {
@@ -109,12 +123,86 @@ impl StrategyEvaluator {
         // Validate strategy configuration
         Self::validate_strategy(strategy)?;
 
+        // Track filter rejections for debugging
+        let mut rejected_category = 0;
+        let mut rejected_price = 0;
+        let mut rejected_volume = 0;
+        let mut rejected_open_interest = 0;
+        let mut rejected_time_window = 0;
+        let mut rejected_momentum = 0;
+        let mut rejected_momentum_no_data = 0;
+        let mut rejected_momentum_insufficient = 0;
+        let total_markets = markets.len();
+
         // Filter markets and generate signals
         let signals: Vec<EntrySignal> = markets
             .iter()
-            .filter(|market| Self::matches_filters(market, &strategy.filters, &strategy.entry_rules.side))
+            .filter(|market| {
+                // Check each filter individually for diagnostics
+                if !Self::matches_category(market, &strategy.filters.categories, &strategy.filters.exclude_categories) {
+                    rejected_category += 1;
+                    return false;
+                }
+                if !Self::matches_price(market, strategy.filters.min_price, strategy.filters.max_price, &strategy.entry_rules.side) {
+                    rejected_price += 1;
+                    return false;
+                }
+                if !Self::matches_volume(market, strategy.filters.min_volume) {
+                    rejected_volume += 1;
+                    return false;
+                }
+                if !Self::matches_open_interest(market, strategy.filters.min_open_interest) {
+                    rejected_open_interest += 1;
+                    return false;
+                }
+                if !Self::matches_time_to_event(
+                    market,
+                    strategy.filters.min_time_to_event_minutes,
+                    strategy.filters.max_time_to_event_minutes,
+                ) {
+                    rejected_time_window += 1;
+                    return false;
+                }
+                let momentum_result = Self::check_momentum_detailed(
+                    market,
+                    strategy.filters.min_momentum_pct,
+                    strategy.filters.momentum_lookback_minutes,
+                    price_tracker,
+                );
+                match momentum_result {
+                    MomentumCheckResult::Pass => {},
+                    MomentumCheckResult::NoData => {
+                        rejected_momentum += 1;
+                        rejected_momentum_no_data += 1;
+                        return false;
+                    },
+                    MomentumCheckResult::InsufficientMovement => {
+                        rejected_momentum += 1;
+                        rejected_momentum_insufficient += 1;
+                        return false;
+                    },
+                }
+                true
+            })
             .flat_map(|market| EntrySignal::from_market(market, strategy))
             .collect();
+
+        // Log filter rejection breakdown if no signals generated
+        if signals.is_empty() && total_markets > 0 {
+            tracing::warn!(
+                "Filter breakdown for {} ({} markets): category={}, price={}, volume={}, open_interest={}, time_window={}, momentum={} (no_data={}, insufficient={})",
+                strategy.name,
+                total_markets,
+                rejected_category,
+                rejected_price,
+                rejected_volume,
+                rejected_open_interest,
+                rejected_time_window,
+                rejected_momentum,
+                rejected_momentum_no_data,
+                rejected_momentum_insufficient
+            );
+        }
 
         Ok(signals)
     }
@@ -125,6 +213,7 @@ impl StrategyEvaluator {
     ///
     /// * `markets` - Slice of markets to evaluate
     /// * `strategies` - Slice of strategies to evaluate against
+    /// * `price_tracker` - Price tracker for momentum analysis (optional)
     ///
     /// # Returns
     ///
@@ -133,11 +222,12 @@ impl StrategyEvaluator {
     pub fn evaluate_all(
         markets: &[Market],
         strategies: &[Strategy],
+        price_tracker: Option<&PriceTracker>,
     ) -> Result<Vec<EntrySignal>, EvaluationError> {
         let mut all_signals = Vec::new();
 
         for strategy in strategies {
-            let signals = Self::evaluate(markets, strategy)?;
+            let signals = Self::evaluate(markets, strategy, price_tracker)?;
             all_signals.extend(signals);
         }
 
@@ -151,6 +241,7 @@ impl StrategyEvaluator {
     /// * `market` - The market to check
     /// * `filters` - Strategy filters to match against
     /// * `entry_side` - Entry side configuration (needed for price filtering)
+    /// * `price_tracker` - Price tracker for momentum checks (optional)
     ///
     /// # Returns
     ///
@@ -159,6 +250,7 @@ impl StrategyEvaluator {
         market: &Market,
         filters: &StrategyFilters,
         entry_side: &EntrySide,
+        price_tracker: Option<&PriceTracker>,
     ) -> bool {
         // Must pass ALL filter checks
         Self::matches_category(market, &filters.categories, &filters.exclude_categories)
@@ -169,6 +261,12 @@ impl StrategyEvaluator {
                 market,
                 filters.min_time_to_event_minutes,
                 filters.max_time_to_event_minutes,
+            )
+            && Self::matches_momentum(
+                market,
+                filters.min_momentum_pct,
+                filters.momentum_lookback_minutes,
+                price_tracker,
             )
     }
 
@@ -293,6 +391,67 @@ impl StrategyEvaluator {
         }
 
         true
+    }
+
+    /// Check momentum with detailed result (for filtering stats)
+    fn check_momentum_detailed(
+        market: &Market,
+        min_momentum_pct: Option<Decimal>,
+        lookback_minutes: Option<u32>,
+        price_tracker: Option<&PriceTracker>,
+    ) -> MomentumCheckResult {
+        // If no momentum filter configured, pass
+        if min_momentum_pct.is_none() || lookback_minutes.is_none() {
+            return MomentumCheckResult::Pass;
+        }
+
+        // If no price tracker provided, pass
+        let tracker = match price_tracker {
+            Some(t) => t,
+            None => return MomentumCheckResult::Pass,
+        };
+
+        let min_pct = min_momentum_pct.unwrap();
+        let lookback_mins = lookback_minutes.unwrap();
+        let lookback_duration = Duration::minutes(lookback_mins as i64);
+
+        // Calculate actual momentum
+        let actual_momentum = tracker.calculate_momentum(&market.id, lookback_duration);
+
+        match actual_momentum {
+            None => MomentumCheckResult::NoData,
+            Some(momentum_value) => {
+                if momentum_value.abs() >= min_pct {
+                    MomentumCheckResult::Pass
+                } else {
+                    MomentumCheckResult::InsufficientMovement
+                }
+            }
+        }
+    }
+
+    /// Check if market has sufficient momentum (price movement)
+    ///
+    /// # Arguments
+    ///
+    /// * `market` - The market to check
+    /// * `min_momentum_pct` - Minimum price change percentage required
+    /// * `lookback_minutes` - How far back to look for price history
+    /// * `price_tracker` - Price tracker with historical data
+    ///
+    /// # Returns
+    ///
+    /// `true` if momentum filter passes or is not enabled, `false` otherwise
+    pub fn matches_momentum(
+        market: &Market,
+        min_momentum_pct: Option<Decimal>,
+        lookback_minutes: Option<u32>,
+        price_tracker: Option<&PriceTracker>,
+    ) -> bool {
+        matches!(
+            Self::check_momentum_detailed(market, min_momentum_pct, lookback_minutes, price_tracker),
+            MomentumCheckResult::Pass
+        )
     }
 
     /// Validate strategy configuration for logical consistency
@@ -721,6 +880,10 @@ mod tests {
             min_open_interest: None,
             min_time_to_event_minutes: None,
             max_time_to_event_minutes: None,
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
         };
 
         let strategy = create_test_strategy(filters, EntrySide::CheaperSide);
@@ -744,6 +907,10 @@ mod tests {
             min_open_interest: None,
             min_time_to_event_minutes: Some(2880),
             max_time_to_event_minutes: Some(120), // min > max
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
         };
 
         let strategy = create_test_strategy(filters, EntrySide::CheaperSide);
@@ -771,12 +938,16 @@ mod tests {
             min_open_interest: None,
             min_time_to_event_minutes: Some(120),
             max_time_to_event_minutes: Some(2880),
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
         };
 
         let strategy = create_test_strategy(filters, EntrySide::CheaperSide);
         let market = create_test_market(MarketCategory::Sports, dec!(0.15), dec!(0.85));
 
-        let signals = StrategyEvaluator::evaluate(&[market], &strategy).unwrap();
+        let signals = StrategyEvaluator::evaluate(&[market], &strategy, None).unwrap();
         assert_eq!(signals.len(), 1);
     }
 
@@ -791,12 +962,16 @@ mod tests {
             min_open_interest: None,
             min_time_to_event_minutes: None,
             max_time_to_event_minutes: None,
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
         };
 
         let strategy = create_test_strategy(filters, EntrySide::CheaperSide);
         let market = create_test_market(MarketCategory::Sports, dec!(0.15), dec!(0.85));
 
-        let signals = StrategyEvaluator::evaluate(&[market], &strategy).unwrap();
+        let signals = StrategyEvaluator::evaluate(&[market], &strategy, None).unwrap();
         assert_eq!(signals.len(), 0);
     }
 
@@ -811,6 +986,10 @@ mod tests {
             min_open_interest: None,
             min_time_to_event_minutes: None,
             max_time_to_event_minutes: None,
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
         };
 
         let mut strategy = create_test_strategy(filters, EntrySide::CheaperSide);
@@ -818,7 +997,7 @@ mod tests {
 
         let market = create_test_market(MarketCategory::Sports, dec!(0.15), dec!(0.85));
 
-        let result = StrategyEvaluator::evaluate(&[market], &strategy);
+        let result = StrategyEvaluator::evaluate(&[market], &strategy, None);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -837,12 +1016,16 @@ mod tests {
             min_open_interest: None,
             min_time_to_event_minutes: None,
             max_time_to_event_minutes: None,
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
         };
 
         let strategy = create_test_strategy(filters, EntrySide::Both);
         let market = create_test_market(MarketCategory::Sports, dec!(0.45), dec!(0.55));
 
-        let signals = StrategyEvaluator::evaluate(&[market], &strategy).unwrap();
+        let signals = StrategyEvaluator::evaluate(&[market], &strategy, None).unwrap();
         assert_eq!(signals.len(), 2); // Both sides generate signals
     }
 
@@ -857,6 +1040,10 @@ mod tests {
             min_open_interest: None,
             min_time_to_event_minutes: None,
             max_time_to_event_minutes: None,
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
         };
 
         let filters2 = StrategyFilters {
@@ -868,6 +1055,10 @@ mod tests {
             min_open_interest: None,
             min_time_to_event_minutes: None,
             max_time_to_event_minutes: None,
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
         };
 
         let strategy1 = create_test_strategy(filters1, EntrySide::CheaperSide);
@@ -877,7 +1068,7 @@ mod tests {
         let market2 = create_test_market(MarketCategory::Politics, dec!(0.20), dec!(0.80));
 
         let signals =
-            StrategyEvaluator::evaluate_all(&[market1, market2], &[strategy1, strategy2])
+            StrategyEvaluator::evaluate_all(&[market1, market2], &[strategy1, strategy2], None)
                 .unwrap();
 
         assert_eq!(signals.len(), 2); // One signal per strategy

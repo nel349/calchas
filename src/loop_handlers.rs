@@ -5,37 +5,43 @@
 use crate::app_state::AppState;
 use crate::kalshi::{KalshiClient, GetMarketsRequest};
 use crate::models::{Market, ExitReason};
-use crate::strategy::signals::EntrySignal;
-use crate::trading::{RiskDecision, TradingError};
+use crate::strategy::signals::{EntrySignal, SignalSide};
+use crate::trading::{RiskDecision, TradingError, OrderbookProvider};
+use chrono::Utc;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use std::sync::Arc;
 
 /// Fetch active markets from Kalshi (for entry scanning when we have capacity)
 ///
-/// Paginates through markets in 7-day window to find opportunities.
-/// Fetches up to 5000 markets (5 pages) to ensure variety.
+/// Paginates through ALL active markets to maximize opportunities.
+/// Fetches up to 10 pages (10,000 markets) for maximum coverage.
 ///
 /// # Arguments
 ///
 /// * `kalshi_client` - Kalshi API client
+/// * `min_time_minutes` - Minimum time to event in minutes (from strategy config)
+/// * `max_time_minutes` - Maximum time to event in minutes (from strategy config)
 ///
 /// # Returns
 ///
 /// Vector of active markets
 pub async fn fetch_all_markets(
     kalshi_client: &Arc<KalshiClient>,
+    min_time_minutes: u32,
+    max_time_minutes: u32,
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     use chrono::Utc;
     let now = Utc::now();
     tracing::info!("Scanning markets at {}", now.format("%H:%M:%S"));
 
-    // Fetch markets closing in next 7 days
-    let min_close = now + chrono::Duration::minutes(30);
-    let max_close = now + chrono::Duration::days(7);
+    // Use strategy-configured time window
+    let min_close = now + chrono::Duration::minutes(min_time_minutes as i64);
+    let max_close = now + chrono::Duration::minutes(max_time_minutes as i64);
 
     let mut all_markets = Vec::new();
     let mut cursor: Option<String> = None;
-    let max_pages = 5;  // Fetch up to 5000 markets
+    let max_pages = 10;  // Fetch up to 10,000 markets for maximum coverage
     let mut page_count = 0;
 
     loop {
@@ -89,6 +95,8 @@ pub async fn fetch_all_markets(
 ///
 /// * `kalshi_client` - Kalshi API client
 /// * `market_ids` - Market IDs to fetch
+/// * `min_time_minutes` - Minimum time to event in minutes (from strategy config)
+/// * `max_time_minutes` - Maximum time to event in minutes (from strategy config)
 ///
 /// # Returns
 ///
@@ -96,34 +104,37 @@ pub async fn fetch_all_markets(
 pub async fn fetch_markets_by_ids(
     kalshi_client: &Arc<KalshiClient>,
     market_ids: &[crate::models::MarketId],
+    min_time_minutes: u32,
+    max_time_minutes: u32,
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     use chrono::Utc;
     let now = Utc::now();
-    tracing::info!("Fetching {} position markets...", market_ids.len());
+
+    // Deduplicate market IDs (e.g., "Both" strategy creates 2 positions per market)
+    let market_id_set: std::collections::HashSet<_> = market_ids.iter().cloned().collect();
+    tracing::info!("Fetching {} unique position markets ({} total positions)...",
+        market_id_set.len(), market_ids.len());
 
     // Use same time window as fetch_all_markets for consistency
-    // Markets close 30min+ from now, up to 7 days
-    let min_close = now + chrono::Duration::minutes(30);
-    let max_close = now + chrono::Duration::days(7);
+    let min_close = now + chrono::Duration::minutes(min_time_minutes as i64);
+    let max_close = now + chrono::Duration::minutes(max_time_minutes as i64);
 
     tracing::debug!("  Time window: {} to {}",
         min_close.format("%Y-%m-%d %H:%M"),
         max_close.format("%Y-%m-%d %H:%M")
     );
-
-    let market_id_set: std::collections::HashSet<_> = market_ids.iter().cloned().collect();
     let mut found_markets = Vec::new();
     let mut cursor: Option<String> = None;
-    let max_pages = 30;  // Search up to 30k markets (supports up to 1000 positions)
+    let max_pages = 5;  // Limit search to 5 pages max (5000 markets) - if not found, use stale prices
     let mut page_count = 0;
 
     loop {
         let request = GetMarketsRequest {
             limit: Some(1000),
             cursor: cursor.clone(),
-            status: Some("open".to_string()),
+            status: None,  // Allow ALL statuses when fetching position markets
             series_ticker: None,
-            min_close_ts: Some(min_close.timestamp()),
+            min_close_ts: Some(min_close.timestamp()),  // Keep time filters to avoid searching ancient history
             max_close_ts: Some(max_close.timestamp()),
         };
 
@@ -151,8 +162,8 @@ pub async fn fetch_markets_by_ids(
         found_markets.extend(batch);
         page_count += 1;
 
-        // Stop if found all or hit limit
-        if found_markets.len() >= market_ids.len() || page_count >= max_pages {
+        // Stop if found all unique markets or hit page limit
+        if found_markets.len() >= market_id_set.len() || page_count >= max_pages {
             break;
         }
 
@@ -167,15 +178,17 @@ pub async fn fetch_markets_by_ids(
         }
     }
 
-    tracing::info!("  Found {}/{} position markets", found_markets.len(), market_ids.len());
+    tracing::info!("  Found {}/{} unique position markets", found_markets.len(), market_id_set.len());
     Ok(found_markets)
 }
 
 /// Evaluate strategies against markets to generate entry signals
 ///
+/// Note: Prices are recorded in the main loop before calling this function.
+///
 /// # Arguments
 ///
-/// * `state` - Application state
+/// * `state` - Application state (read-only access)
 /// * `markets` - Markets to evaluate
 ///
 /// # Returns
@@ -196,7 +209,7 @@ pub fn evaluate_strategies(
     for strategy in state.strategies.values() {
         tracing::info!("Evaluating strategy: {} against {} markets", strategy.name, markets.len());
 
-        match crate::strategy::evaluator::StrategyEvaluator::evaluate(markets, strategy) {
+        match crate::strategy::evaluator::StrategyEvaluator::evaluate(markets, strategy, Some(&state.price_tracker)) {
             Ok(strategy_signals) => {
                 tracing::info!("  Generated {} signals from {}", strategy_signals.len(), strategy.name);
                 // Attach market data to each signal
@@ -216,12 +229,81 @@ pub fn evaluate_strategies(
     signal_market_pairs
 }
 
-/// Process an entry signal (risk check → execute → open position)
+/// Check orderbook for acceptable spread and liquidity
+///
+/// # Arguments
+///
+/// * `orderbook_provider` - Provider for fetching orderbook data
+/// * `signal` - Entry signal being evaluated
+/// * `max_spread` - Maximum spread in cents (optional)
+/// * `min_quantity` - Minimum liquidity required (optional)
+///
+/// # Returns
+///
+/// Ok(true) if orderbook passes checks or checks are disabled
+/// Ok(false) if orderbook fails checks
+async fn check_orderbook_acceptable(
+    orderbook_provider: &impl OrderbookProvider,
+    signal: &EntrySignal,
+    max_spread: Option<Decimal>,
+    min_quantity: Option<u64>,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    // If no orderbook filters configured, pass
+    if max_spread.is_none() && min_quantity.is_none() {
+        return Ok(true);
+    }
+
+    // Fetch orderbook
+    let orderbook = match orderbook_provider.get_orderbook(&signal.market_id).await? {
+        Some(ob) => ob,
+        None => {
+            tracing::warn!("  Orderbook not available for {}", signal.market_id.as_str());
+            return Ok(true); // Allow if orderbook unavailable (simulation fallback)
+        }
+    };
+
+    // Check spread
+    if let Some(max_spread_cents) = max_spread {
+        if let Some(spread) = orderbook.spread() {
+            if spread > max_spread_cents {
+                tracing::warn!(
+                    "  ✗ Spread too wide: ${:.2} > ${:.2}",
+                    spread,
+                    max_spread_cents
+                );
+                return Ok(false);
+            }
+        }
+    }
+
+    // Check liquidity (side-specific)
+    if let Some(min_qty) = min_quantity {
+        let available_quantity = match signal.side {
+            SignalSide::Yes => orderbook.yes_best_ask_quantity(),
+            SignalSide::No => orderbook.no_best_ask_quantity(),
+        };
+
+        if available_quantity < min_qty {
+            tracing::warn!(
+                "  ✗ Insufficient liquidity: {} contracts < {} required",
+                available_quantity,
+                min_qty
+            );
+            return Ok(false);
+        }
+    }
+
+    tracing::debug!("  ✓ Orderbook check passed for {}", signal.market_id.as_str());
+    Ok(true)
+}
+
+/// Process an entry signal (orderbook check → risk check → execute → open position)
 ///
 /// # Arguments
 ///
 /// * `state` - Application state (mutable)
 /// * `signal` - Entry signal to process
+/// * `market` - Market data for this signal
 ///
 /// # Returns
 ///
@@ -229,10 +311,34 @@ pub fn evaluate_strategies(
 pub async fn process_entry_signal(
     state: &mut AppState,
     signal: EntrySignal,
+    market: &crate::models::Market,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if market is still open for trading
+    if !market.is_open() {
+        tracing::debug!(
+            "  ⏸️  Market {} is not active (status: {:?}), skipping entry",
+            market.ticker,
+            market.status
+        );
+        return Ok(()); // Not an error, just skip closed markets
+    }
+
     // Get strategy for this signal
     let strategy = state.strategies.get(&signal.strategy_id)
         .ok_or("Strategy not found for signal")?;
+
+    // Orderbook check (if configured in strategy)
+    let orderbook_ok = check_orderbook_acceptable(
+        &state.orderbook_provider,
+        &signal,
+        strategy.filters.max_spread_cents,
+        strategy.filters.min_best_price_quantity,
+    ).await?;
+
+    if !orderbook_ok {
+        tracing::warn!("  Orderbook check failed for {}", signal.market_id.as_str());
+        return Ok(()); // Not an error, just rejected
+    }
 
     // Risk check
     let risk_decision = state.risk_manager.check_entry(&signal, &state.positions, strategy);
@@ -245,7 +351,7 @@ pub async fn process_entry_signal(
             );
         }
         RiskDecision::Rejected(reason) => {
-            tracing::warn!(
+            tracing::debug!(
                 "✗ Risk check REJECTED for {} ({:?})",
                 signal.market_id.0,
                 reason
@@ -299,6 +405,17 @@ pub async fn process_entry_signal(
                 contracts_decimal.floor().to_u64().unwrap_or(0)
             }
         };
+
+        // Validate quantity is positive (prevent zero-quantity orders)
+        if contracts == 0 {
+            tracing::warn!(
+                "  ⚠️  Insufficient capital for {} - calculated 0 contracts (price: ${:.2}, position size: {})",
+                signal.market_ticker,
+                signal.recommended_price,
+                signal.position_size
+            );
+            return Ok(()); // Not an error, just skip insufficient capital
+        }
 
         let mut order = Order::new(
             order_id,
@@ -426,33 +543,58 @@ pub async fn update_and_check_positions(
         };
 
         let price_change = current_price - position.current_price;
-        let change_symbol = if price_change > rust_decimal::Decimal::ZERO {
-            "↑"
-        } else if price_change < rust_decimal::Decimal::ZERO {
-            "↓"
-        } else {
-            "→"
-        };
-
         let pnl_color = if updated_position.unrealized_pnl > rust_decimal::Decimal::ZERO {
             "+"
         } else {
             ""
         };
 
-        tracing::info!(
-            "  [{}/{}] {} | Entry ${:.2} {} ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2}",
-            side_str,
-            position.quantity,
-            market.ticker,
-            position.entry_price,
-            change_symbol,
-            current_price,
-            pnl_color,
-            updated_position.unrealized_pnl,
-            position.exit_target.take_profit_price.unwrap_or_default(),
-            position.exit_target.stop_loss_price.unwrap_or_default()
-        );
+        // Only show price change if it's meaningful (more than $0.01 difference)
+        let price_diff = (current_price - position.entry_price).abs();
+        let threshold = rust_decimal::Decimal::new(1, 2); // 0.01
+
+        if price_diff >= threshold {
+            // Color-code arrows: green for up, red for down
+            let (change_symbol, color_start, color_end) = if price_change > rust_decimal::Decimal::ZERO {
+                ("↑", "\x1b[32m", "\x1b[0m")  // Green
+            } else {
+                ("↓", "\x1b[31m", "\x1b[0m")  // Red
+            };
+
+            // Use println! for proper ANSI color rendering
+            // Add colored marker at end to highlight changed positions
+            println!(
+                "\x1b[36m{}\x1b[0m  [{}/{}] {} | Entry ${:.2} {}{}{} ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2} {}●{}",
+                Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ"),
+                side_str,
+                position.quantity,
+                market.ticker,
+                position.entry_price,
+                color_start,
+                change_symbol,
+                color_end,
+                current_price,
+                pnl_color,
+                updated_position.unrealized_pnl,
+                position.exit_target.take_profit_price.unwrap_or_default(),
+                position.exit_target.stop_loss_price.unwrap_or_default(),
+                color_start,
+                color_end
+            );
+        } else {
+            // Price hasn't changed meaningfully - no arrow
+            tracing::info!(
+                "  [{}/{}] {} | Entry ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2}",
+                side_str,
+                position.quantity,
+                market.ticker,
+                position.entry_price,
+                pnl_color,
+                updated_position.unrealized_pnl,
+                position.exit_target.take_profit_price.unwrap_or_default(),
+                position.exit_target.stop_loss_price.unwrap_or_default()
+            );
+        }
 
         // Always update the position in AppState with new price
         state.positions.insert(position_id.clone(), updated_position.clone());

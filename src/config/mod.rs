@@ -101,6 +101,26 @@ pub struct RuntimeConfig {
     /// Directory containing strategy JSON files
     /// Can be overridden with: CALCHAS_RUNTIME__STRATEGY_DIR
     pub strategy_dir: String,
+
+    /// Default minimum time to event in minutes (when strategy doesn't specify)
+    /// Can be overridden with: CALCHAS__RUNTIME__DEFAULT_MIN_TIME_MINUTES
+    #[serde(default = "default_min_time_minutes")]
+    pub default_min_time_minutes: u32,
+
+    /// Default maximum time to event in minutes (when strategy doesn't specify)
+    /// Can be overridden with: CALCHAS__RUNTIME__DEFAULT_MAX_TIME_MINUTES
+    #[serde(default = "default_max_time_minutes")]
+    pub default_max_time_minutes: u32,
+}
+
+/// Default minimum time: 0 minutes (allow live events)
+fn default_min_time_minutes() -> u32 {
+    0
+}
+
+/// Default maximum time: 30 days
+fn default_max_time_minutes() -> u32 {
+    43200  // 30 days * 24 hours * 60 minutes
 }
 
 /// Kalshi API configuration

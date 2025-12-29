@@ -8,6 +8,7 @@
 
 use calchas::strategy::{StrategyLoader, StrategyEvaluator};
 use calchas::models::{Market, MarketId, MarketCategory, MarketStatus};
+use calchas::trading::PriceTracker;
 use chrono::{Duration, Utc};
 use rust_decimal_macros::dec;
 
@@ -116,7 +117,7 @@ fn test_full_strategy_evaluation_flow() {
     assert_eq!(markets.len(), 5);
 
     // Step 3: Evaluate markets against strategy
-    let signals = StrategyEvaluator::evaluate(&markets, &strategy)
+    let signals = StrategyEvaluator::evaluate(&markets, &strategy, None)
         .expect("Evaluation failed");
 
     // Step 4: Verify only the matching market generated a signal
@@ -169,7 +170,7 @@ fn test_no_signals_when_no_matches() {
         },
     ];
 
-    let signals = StrategyEvaluator::evaluate(&markets, &strategy)
+    let signals = StrategyEvaluator::evaluate(&markets, &strategy, None)
         .expect("Evaluation failed");
 
     assert_eq!(signals.len(), 0, "Expected no signals for non-matching markets");
@@ -200,7 +201,7 @@ fn test_volatility_hedge_generates_two_signals() {
         },
     ];
 
-    let signals = StrategyEvaluator::evaluate(&markets, &strategy)
+    let signals = StrategyEvaluator::evaluate(&markets, &strategy, None)
         .expect("Evaluation failed");
 
     // Volatility hedge uses EntrySide::Both, so should generate 2 signals
@@ -225,7 +226,7 @@ fn test_disabled_strategy_returns_error() {
 
     let markets = create_test_markets();
 
-    let result = StrategyEvaluator::evaluate(&markets, &strategy);
+    let result = StrategyEvaluator::evaluate(&markets, &strategy, None);
 
     assert!(result.is_err(), "Expected error for disabled strategy");
     assert!(matches!(
@@ -246,7 +247,7 @@ fn test_evaluate_all_with_multiple_strategies() {
     let markets = create_test_markets();
 
     // Evaluate all strategies
-    let signals = StrategyEvaluator::evaluate_all(&markets, &strategies)
+    let signals = StrategyEvaluator::evaluate_all(&markets, &strategies, None)
         .expect("Evaluation failed");
 
     // Should have at least some signals (underdog_hunter matches SPORTS-001)
@@ -259,4 +260,167 @@ fn test_evaluate_all_with_multiple_strategies() {
 
     // Should have signals from at least one strategy
     assert!(!strategy_names.is_empty());
+}
+
+#[test]
+fn test_momentum_filter_integration() {
+    use calchas::models::strategy::{
+        Strategy, StrategyId, StrategyFilters, EntryRules, EntrySide, ExitRules,
+        RiskLimits, PositionSizeUnit, OrderType
+    };
+
+    // Create a strategy with momentum filters
+    let strategy = Strategy {
+        id: StrategyId::new("momentum-test".to_string()),
+        name: "Momentum Test".to_string(),
+        description: "Test strategy for momentum filtering".to_string(),
+        version: "1.0".to_string(),
+        enabled: true,
+        filters: StrategyFilters {
+            categories: Some(vec![MarketCategory::Sports]),
+            exclude_categories: None,
+            min_price: Some(dec!(0.10)),
+            max_price: Some(dec!(0.90)),
+            min_volume: Some(1000),
+            min_open_interest: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
+            min_momentum_pct: Some(dec!(5.0)),  // Require 5% movement
+            momentum_lookback_minutes: Some(60),  // Over last hour
+            max_spread_cents: None,
+            min_best_price_quantity: None,
+        },
+        entry_rules: EntryRules {
+            side: EntrySide::Yes,
+            position_size: 10,
+            position_size_unit: PositionSizeUnit::Contracts,
+            order_type: OrderType::Market,
+            limit_price_offset: None,
+        },
+        exit_rules: ExitRules {
+            take_profit_pct: Some(dec!(10.0)),
+            stop_loss_pct: Some(dec!(5.0)),
+            trailing_stop_pct: None,
+            trailing_stop_activation_pct: None,
+            max_hold_time_minutes: None,
+            exit_order_type: OrderType::Market,
+        },
+        risk_limits: RiskLimits {
+            max_concurrent_positions: 5,
+            max_daily_loss_usd: Some(dec!(100.0)),
+            max_position_loss_usd: None,
+            loss_cooldown_minutes: None,
+        },
+    };
+
+    // Create test markets
+    let market_with_momentum = Market {
+        id: MarketId::new("MOMENTUM-MARKET".to_string()),
+        ticker: "HAS-MOMENTUM".to_string(),
+        title: "Market with momentum".to_string(),
+        category: MarketCategory::Sports,
+        sub_category: Some("NBA".to_string()),
+        status: MarketStatus::Active,
+        yes_price: dec!(0.50),
+        no_price: dec!(0.50),
+        volume: 5000,
+        open_interest: 2000,
+        event_time: Utc::now() + Duration::hours(24),
+        close_time: Utc::now() + Duration::hours(23),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    let market_without_momentum = Market {
+        id: MarketId::new("STALE-MARKET".to_string()),
+        ticker: "NO-MOMENTUM".to_string(),
+        title: "Stale market".to_string(),
+        category: MarketCategory::Sports,
+        sub_category: Some("NBA".to_string()),
+        status: MarketStatus::Active,
+        yes_price: dec!(0.50),
+        no_price: dec!(0.50),
+        volume: 5000,
+        open_interest: 2000,
+        event_time: Utc::now() + Duration::hours(24),
+        close_time: Utc::now() + Duration::hours(23),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    // Create price tracker with historical data
+    let mut tracker = PriceTracker::new();
+    let now = Utc::now();
+
+    // Market 1: 10% gain (0.50 -> 0.55) - should pass 5% filter
+    // Record old price first (1 hour ago)
+    tracker.insert_test_snapshot(
+        &market_with_momentum.id,
+        dec!(0.50),
+        dec!(0.50),
+        now - Duration::hours(1),
+    );
+    // Record current price
+    tracker.record_price(&market_with_momentum.id, dec!(0.55), dec!(0.45));
+
+    // Market 2: Only 2% gain (0.50 -> 0.51) - should fail 5% filter
+    // Record old price first (1 hour ago)
+    tracker.insert_test_snapshot(
+        &market_without_momentum.id,
+        dec!(0.50),
+        dec!(0.50),
+        now - Duration::hours(1),
+    );
+    // Record current price
+    tracker.record_price(&market_without_momentum.id, dec!(0.51), dec!(0.49));
+
+    let markets = vec![market_with_momentum.clone(), market_without_momentum.clone()];
+
+    // Evaluate WITH price tracker
+    let signals = StrategyEvaluator::evaluate(&markets, &strategy, Some(&tracker))
+        .expect("Evaluation failed");
+
+    // Should only match the market with sufficient momentum
+    assert_eq!(signals.len(), 1, "Expected 1 signal (only market with >5% momentum)");
+    assert_eq!(signals[0].market_ticker, "HAS-MOMENTUM");
+
+    // Evaluate WITHOUT price tracker (should allow both - fallback behavior)
+    let signals_no_tracker = StrategyEvaluator::evaluate(&markets, &strategy, None)
+        .expect("Evaluation failed");
+
+    assert_eq!(signals_no_tracker.len(), 2, "Without tracker, should allow both markets (fallback)");
+}
+
+#[test]
+fn test_orderbook_structure() {
+    use calchas::models::{Orderbook, OrderbookLevel};
+
+    // Test orderbook spread calculation
+    let orderbook = Orderbook {
+        market_id: MarketId::new("TEST-MARKET".to_string()),
+        yes_asks: vec![
+            OrderbookLevel { price: dec!(0.55), quantity: 100 },
+            OrderbookLevel { price: dec!(0.56), quantity: 50 },
+        ],
+        no_asks: vec![
+            OrderbookLevel { price: dec!(0.48), quantity: 75 },
+            OrderbookLevel { price: dec!(0.49), quantity: 25 },
+        ],
+    };
+
+    // Best ask prices
+    assert_eq!(orderbook.yes_best_ask().unwrap(), dec!(0.55));
+    assert_eq!(orderbook.no_best_ask().unwrap(), dec!(0.48));
+
+    // Best quantities
+    assert_eq!(orderbook.yes_best_ask_quantity(), 100);
+    assert_eq!(orderbook.no_best_ask_quantity(), 75);
+
+    // Spread calculation
+    // YES ask = 0.55
+    // NO ask = 0.48
+    // Implied YES from NO = 1.00 - 0.48 = 0.52
+    // Spread = 0.55 - 0.52 = 0.03
+    let spread = orderbook.spread().unwrap();
+    assert_eq!(spread, dec!(0.03));
 }

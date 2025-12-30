@@ -61,6 +61,22 @@
     "momentum_lookback_minutes": 60,
     "_momentum_lookback_note": "How far back to measure momentum (minutes). Example: 60 = check price change over last hour. Requires min_momentum_pct.",
 
+    "min_volume_spike_pct": "50.0",
+    "_volume_spike_pct_note": "Minimum volume spike % required. Detects sharp money entering. Example: 50.0 = volume rate must be 50% above average in lookback window. Requires volume_spike_lookback_minutes.",
+
+    "volume_spike_lookback_minutes": 10,
+    "_volume_spike_lookback_note": "How far back to measure volume spike (minutes). Example: 10 = check volume spike over last 10 minutes. Requires min_volume_spike_pct.",
+
+    "min_order_flow_imbalance": "0.35",
+    "_order_flow_imbalance_note": "Minimum order flow imbalance (OFI) required. Measures buy/sell pressure. Range 0.0-1.0 (absolute value).",
+    "_ofi_examples": {
+      "0.0": "Balanced orderbook (50/50)",
+      "0.3": "Moderate imbalance (65/35 split)",
+      "0.35": "Strong signal (67.5/32.5 split) - RECOMMENDED",
+      "0.5": "Very strong imbalance (75/25 split)",
+      "1.0": "Extreme imbalance (100/0 split - one-sided)"
+    },
+
     "max_spread_cents": "0.05",
     "_spread_note": "Maximum bid-ask spread in cents. Example: 0.05 = reject if spread > 5¢. Ensures tight orderbook.",
 
@@ -146,10 +162,11 @@
   },
 
   "_comment_footer": "=================================================================",
-  "_field_count": "TOTAL FIELDS: 35 (6 metadata + 12 filters + 5 entry + 8 exit + 4 risk)",
+  "_field_count": "TOTAL FIELDS: 38 (6 metadata + 15 filters + 5 entry + 8 exit + 4 risk)",
   "_required_fields": "id, name, description, version, enabled, filters, entry_rules, exit_rules, risk_limits",
   "_all_other_fields": "Optional - set to null if not needed",
-  "_validation": "Validated against src/models/strategy.rs (lines 1-376)",
+  "_validation": "Validated against src/models/strategy.rs - Complete as of Dec 2025",
+  "_new_fields_added": "min_volume_spike_pct, volume_spike_lookback_minutes, min_order_flow_imbalance (critical for Phase 1 & 2 strategies)",
   "_usage": "Copy this file, rename it, remove _comment fields, set unused fields to null",
   "_comment": "================================================================="
 }

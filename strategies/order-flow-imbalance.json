@@ -10,8 +10,8 @@
     "exclude_categories": null,
     "series_ticker": null,
 
-    "min_price": "0.10",
-    "max_price": "0.90",
+    "min_price": "0.05",
+    "max_price": "0.95",
 
     "min_volume": 5000,
     "min_open_interest": null,
@@ -25,23 +25,23 @@
     "min_volume_spike_pct": null,
     "volume_spike_lookback_minutes": null,
 
-    "min_order_flow_imbalance": "0.25"
+    "min_order_flow_imbalance": "0.35"
   },
 
   "entry_rules": {
     "side": "ExpensiveSide",
-    "position_size": 10,
+    "position_size": 5,
     "position_size_unit": "Dollars",
     "order_type": "Limit",
     "limit_price_offset": "-0.005"
   },
 
   "exit_rules": {
-    "take_profit_pct": "25.0",
-    "stop_loss_pct": "15.0",
+    "take_profit_pct": "5.0",
+    "stop_loss_pct": null,
     "trailing_stop_pct": null,
     "trailing_stop_activation_pct": null,
-    "max_hold_time_minutes": 60,
+    "max_hold_time_minutes": null,
     "exit_order_type": "Market"
   },
 

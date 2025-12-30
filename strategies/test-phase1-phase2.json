@@ -3,7 +3,7 @@
   "name": "Test Phase 1 & 2 Integration",
   "description": "Loose thresholds to verify volume spike and OFI detection are working",
   "version": "1.0.0",
-  "enabled": true,
+  "enabled": false,
 
   "filters": {
     "categories": null,

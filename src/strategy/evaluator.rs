@@ -314,6 +314,81 @@ impl StrategyEvaluator {
         Ok(all_signals)
     }
 
+    /// Check if a market passes basic filters (those that don't require orderbook data)
+    ///
+    /// This is used for pre-filtering markets before fetching orderbooks, to reduce
+    /// API calls from 10,000 → ~50-100.
+    ///
+    /// Basic filters checked (NO orderbook needed):
+    /// - Category filters
+    /// - Price range
+    /// - Volume
+    /// - Open interest
+    /// - Time to event
+    /// - Momentum (uses price_tracker)
+    /// - Volume spike (uses volume_tracker)
+    ///
+    /// NOT checked (requires orderbook):
+    /// - Order flow imbalance
+    /// - Spread
+    /// - Best price quantity
+    ///
+    /// # Returns
+    ///
+    /// `true` if market passes ALL basic filters, `false` otherwise
+    pub fn matches_basic_filters(
+        market: &Market,
+        filters: &StrategyFilters,
+        entry_side: &EntrySide,
+        price_tracker: Option<&PriceTracker>,
+        volume_tracker: Option<&crate::trading::VolumeTracker>,
+    ) -> bool {
+        // Check each basic filter
+        if !Self::matches_category(market, &filters.categories, &filters.exclude_categories) {
+            return false;
+        }
+        if !Self::matches_price(market, filters.min_price, filters.max_price, entry_side) {
+            return false;
+        }
+        if !Self::matches_volume(market, filters.min_volume) {
+            return false;
+        }
+        if !Self::matches_open_interest(market, filters.min_open_interest) {
+            return false;
+        }
+        if !Self::matches_time_to_event(
+            market,
+            filters.min_time_to_event_minutes,
+            filters.max_time_to_event_minutes,
+        ) {
+            return false;
+        }
+
+        // Check momentum (uses price_tracker, not orderbook)
+        let momentum_result = Self::check_momentum_detailed(
+            market,
+            filters.min_momentum_pct,
+            filters.momentum_lookback_minutes,
+            price_tracker,
+        );
+        if !matches!(momentum_result, MomentumCheckResult::Pass) {
+            return false;
+        }
+
+        // Check volume spike (uses volume_tracker, not orderbook)
+        let volume_spike_result = Self::check_volume_spike_detailed(
+            market,
+            filters.min_volume_spike_pct,
+            filters.volume_spike_lookback_minutes,
+            volume_tracker,
+        );
+        if !matches!(volume_spike_result, VolumeCheckResult::Pass) {
+            return false;
+        }
+
+        true
+    }
+
     /// Check if a market matches strategy filters
     ///
     /// # Arguments
@@ -1407,5 +1482,175 @@ mod tests {
         market.event_ticker = "KXNFLGAME".to_string();
         market.event_time = Utc::now() - Duration::minutes(10);
         assert!(!StrategyEvaluator::matches_time_to_event(&market, None, None));
+    }
+
+    // =========================================================================
+    // MATCHES_BASIC_FILTERS TESTS (Two-Phase Filtering Optimization)
+    // =========================================================================
+
+    #[test]
+    fn test_matches_basic_filters_all_pass() {
+        // Market that passes all basic filters
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.45), dec!(0.55));
+        market.volume = 5000;
+        market.open_interest = 1000;
+
+        let filters = StrategyFilters {
+            categories: None,
+            exclude_categories: None,
+            series_ticker: None,
+            min_price: Some(dec!(0.10)),
+            max_price: Some(dec!(0.90)),
+            min_volume: Some(1000),
+            min_open_interest: Some(500),
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
+            min_momentum_pct: None,       // No momentum filter
+            momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,   // No volume spike filter
+            volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None, // Not checked by basic filters
+            max_spread_cents: None,         // Not checked by basic filters
+            min_best_price_quantity: None,  // Not checked by basic filters
+        };
+
+        assert!(StrategyEvaluator::matches_basic_filters(
+            &market,
+            &filters,
+            &EntrySide::CheaperSide,
+            None, // No price tracker
+            None, // No volume tracker
+        ));
+    }
+
+    #[test]
+    fn test_matches_basic_filters_fails_price() {
+        let market = create_test_market(MarketCategory::Sports, dec!(0.05), dec!(0.95));
+
+        let filters = StrategyFilters {
+            categories: None,
+            exclude_categories: None,
+            series_ticker: None,
+            min_price: Some(dec!(0.10)), // Market YES price (0.05) is too low
+            max_price: Some(dec!(0.90)),
+            min_volume: None,
+            min_open_interest: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
+        };
+
+        assert!(!StrategyEvaluator::matches_basic_filters(
+            &market,
+            &filters,
+            &EntrySide::CheaperSide,
+            None,
+            None,
+        ));
+    }
+
+    #[test]
+    fn test_matches_basic_filters_fails_volume() {
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.45), dec!(0.55));
+        market.volume = 500; // Below minimum
+
+        let filters = StrategyFilters {
+            categories: None,
+            exclude_categories: None,
+            series_ticker: None,
+            min_price: None,
+            max_price: None,
+            min_volume: Some(1000), // Market volume (500) is too low
+            min_open_interest: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
+        };
+
+        assert!(!StrategyEvaluator::matches_basic_filters(
+            &market,
+            &filters,
+            &EntrySide::CheaperSide,
+            None,
+            None,
+        ));
+    }
+
+    #[test]
+    fn test_matches_basic_filters_fails_category() {
+        let market = create_test_market(MarketCategory::Sports, dec!(0.45), dec!(0.55));
+
+        let filters = StrategyFilters {
+            categories: Some(vec![MarketCategory::Economics]), // Only Economics
+            exclude_categories: None,
+            series_ticker: None,
+            min_price: None,
+            max_price: None,
+            min_volume: None,
+            min_open_interest: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
+            max_spread_cents: None,
+            min_best_price_quantity: None,
+        };
+
+        assert!(!StrategyEvaluator::matches_basic_filters(
+            &market,
+            &filters,
+            &EntrySide::CheaperSide,
+            None,
+            None,
+        ));
+    }
+
+    #[test]
+    fn test_matches_basic_filters_ignores_ofi() {
+        // Market passes basic filters even though it would fail OFI check
+        let market = create_test_market(MarketCategory::Sports, dec!(0.45), dec!(0.55));
+
+        let filters = StrategyFilters {
+            categories: None,
+            exclude_categories: None,
+            series_ticker: None,
+            min_price: None,
+            max_price: None,
+            min_volume: None,
+            min_open_interest: None,
+            min_time_to_event_minutes: None,
+            max_time_to_event_minutes: None,
+            min_momentum_pct: None,
+            momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: Some(dec!(0.30)), // OFI filter present but IGNORED
+            max_spread_cents: Some(dec!(0.05)),         // Spread filter IGNORED
+            min_best_price_quantity: Some(200),         // Liquidity filter IGNORED
+        };
+
+        // Should pass because OFI/spread/liquidity are NOT checked by matches_basic_filters
+        assert!(StrategyEvaluator::matches_basic_filters(
+            &market,
+            &filters,
+            &EntrySide::CheaperSide,
+            None,
+            None,
+        ));
     }
 }

@@ -1,6 +1,14 @@
 // Kalshi Fee Structure and Calculations
-// Last updated: October 1, 2025
-// Source: https://help.kalshi.com/trading/fees
+//
+// ⚠️  SINGLE SOURCE OF TRUTH for all Kalshi fee constants and formulas ⚠️
+// All other code MUST use these functions - do NOT duplicate formulas elsewhere.
+//
+// Official Sources:
+// - https://help.kalshi.com/trading/fees (official fee documentation)
+// - https://kalshi.com/docs/kalshi-fee-schedule.pdf (detailed fee schedule)
+// - https://whirligigbear.substack.com/p/makertaker-math-on-kalshi (formula analysis)
+//
+// Last verified: December 30, 2025
 
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -9,13 +17,13 @@ use rust_decimal_macros::dec;
 // FEE CONSTANTS
 // =============================================================================
 
-/// Taker fee rate (market orders - immediate execution)
+/// Taker fee coefficient (market orders - immediate execution)
 /// Applied when you take liquidity from the order book
-pub const TAKER_FEE_RATE: Decimal = dec!(0.07); // 7%
+pub const TAKER_FEE_RATE: Decimal = dec!(0.07);
 
-/// Maker fee rate (limit orders - resting on the book)
+/// Maker fee coefficient (limit orders - resting on the book)
 /// Applied when you add liquidity to the order book
-pub const MAKER_FEE_RATE: Decimal = dec!(0.0175); // 1.75%
+pub const MAKER_FEE_RATE: Decimal = dec!(0.0175);
 
 /// Maximum fee cap per 100 contracts (applies to taker orders)
 /// Prevents excessive fees on trades near 50¢
@@ -38,7 +46,7 @@ pub const FEE_CAP_PER_100_CONTRACTS: Decimal = dec!(1.75); // $1.75
 
 /// Calculate Kalshi taker fee (market orders, immediate execution)
 ///
-/// Formula: `0.07 × Contracts × Price × (1 - Price)`
+/// See implementation for formula. Uses TAKER_FEE_RATE constant.
 ///
 /// # Examples
 /// ```
@@ -58,7 +66,7 @@ pub fn calculate_kalshi_taker_fee(price: Decimal, quantity: u64) -> Decimal {
 
 /// Calculate Kalshi maker fee (limit orders, resting on book)
 ///
-/// Formula: `0.0175 × Contracts × Price × (1 - Price)`
+/// See implementation for formula. Uses MAKER_FEE_RATE constant.
 ///
 /// # Examples
 /// ```

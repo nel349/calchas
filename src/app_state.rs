@@ -166,11 +166,6 @@ impl AppState {
 
         tracing::info!("✓ All trading components initialized");
         tracing::info!("✓ Using REAL orderbook data from Kalshi API");
-        tracing::info!("✓ Arbitrage scanner initialized (capital: ${}, max/trade: ${}, min profit: {}%)",
-            config.arbitrage.starting_capital,
-            config.arbitrage.max_capital_per_trade,
-            config.arbitrage.min_profit_pct * Decimal::from(100)
-        );
 
         Ok(Self {
             kalshi_client,

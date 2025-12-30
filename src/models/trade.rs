@@ -114,13 +114,17 @@ impl Trade {
         let price_diff = exit_price - entry_price;
         let gross_pnl = price_diff * Decimal::from(exit_quantity);
 
-        // Calculate net P&L
+        // Calculate net P&L (gross profit minus all fees)
         let net_pnl = gross_pnl - fees;
 
-        // Calculate return percentage
+        // Calculate return percentage: net_pnl / total_capital_invested
+        // Total capital = contract cost + entry fees
+        // Note: fees param is total (entry + exit), so recalculate entry fees separately
         let entry_cost = entry_price * Decimal::from(entry_quantity);
-        let return_pct = if entry_cost > Decimal::ZERO {
-            (net_pnl / entry_cost) * Decimal::from(100)
+        let entry_fees = crate::kalshi::fees::calculate_kalshi_taker_fee(entry_price, entry_quantity);
+        let total_invested = entry_cost + entry_fees;
+        let return_pct = if total_invested > Decimal::ZERO {
+            (net_pnl / total_invested) * Decimal::from(100)
         } else {
             Decimal::ZERO
         };
@@ -242,10 +246,12 @@ mod tests {
     #[test]
     fn test_return_pct_calculation() {
         let trade = create_test_trade();
-        // Entry cost: 0.11 * 100 = 11.00
-        // Net PnL: 11.04
-        // Return: (11.04 / 11.00) * 100 = 100.36%
-        let expected = (dec!(11.04) / dec!(11.00)) * Decimal::from(100);
+        // Return % = (net_pnl / total_invested) * 100
+        // Total invested = contract cost + entry fees
+        // Entry fees calculated using kalshi::fees (single source of truth)
+        let entry_fees = crate::kalshi::fees::calculate_kalshi_taker_fee(dec!(0.11), 100);
+        let total_invested = dec!(11.00) + entry_fees;
+        let expected = (dec!(11.04) / total_invested) * Decimal::from(100);
         assert_eq!(trade.return_pct, expected);
     }
 

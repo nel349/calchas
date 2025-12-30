@@ -99,6 +99,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// Ok(()) when loop exits (Ctrl+C)
 async fn run_arbitrage_mode(state: &mut AppState) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!("✓ Arbitrage mode active - scanning for cross-market opportunities");
+    tracing::info!("  Detection only (no execution) - Week 1 validation phase");
+
     let mut interval = tokio::time::interval(Duration::from_secs(10));
     let mut iteration = 0u64;
 
@@ -174,6 +177,9 @@ async fn run_arbitrage_mode(state: &mut AppState) -> Result<(), Box<dyn std::err
 ///
 /// Ok(()) when loop exits (Ctrl+C)
 async fn run_strategy_mode(state: &mut AppState) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!("✓ Strategy mode active - evaluating momentum-based strategies");
+    tracing::info!("  Loaded {} strategies from strategies/*.json", state.strategies.len());
+
     let mut interval = tokio::time::interval(Duration::from_secs(10));
     let mut iteration = 0u64;
 
@@ -220,31 +226,78 @@ async fn run_strategy_mode(state: &mut AppState) -> Result<(), Box<dyn std::erro
                                 state.price_tracker.market_count(),
                                 state.volume_tracker.market_count());
 
-                            // Fetch and record orderbooks for OFI tracking (Phase 2)
-                            // Only if any strategy uses order flow imbalance filter
+                            // OPTIMIZATION: Two-phase filtering to reduce orderbook API calls
+                            // Phase 1: Apply basic filters (no orderbook needed) to narrow 10,000 → ~50-100
+                            // Phase 2: Fetch orderbooks only for candidates, apply OFI filter
                             let needs_ofi = state.strategies.values()
                                 .any(|s| s.filters.min_order_flow_imbalance.is_some());
 
                             if needs_ofi && !m.is_empty() {
-                                tracing::debug!("Fetching orderbooks for {} markets (OFI tracking)", m.len());
-                                let mut orderbooks_fetched = 0;
-                                for market in &m {
-                                    match state.orderbook_provider.get_orderbook(&market.id).await {
-                                        Ok(Some(orderbook)) => {
-                                            state.order_flow_tracker.record_orderbook(&orderbook);
-                                            orderbooks_fetched += 1;
-                                        }
-                                        Ok(None) => {
-                                            tracing::trace!("No orderbook for {}", market.id.as_str());
-                                        }
-                                        Err(e) => {
-                                            tracing::warn!("Failed to fetch orderbook for {}: {}", market.id.as_str(), e);
+                                tracing::info!("🔍 Pre-filtering markets for OFI tracking (Phase 1: basic filters)...");
+
+                                // Collect candidates that pass basic filters
+                                let mut candidates = std::collections::HashSet::new();
+                                for strategy in state.strategies.values().filter(|s| s.filters.min_order_flow_imbalance.is_some()) {
+                                    for market in &m {
+                                        if calchas::strategy::evaluator::StrategyEvaluator::matches_basic_filters(
+                                            market,
+                                            &strategy.filters,
+                                            &strategy.entry_rules.side,
+                                            Some(&state.price_tracker),
+                                            Some(&state.volume_tracker),
+                                        ) {
+                                            candidates.insert(market.id.clone());
                                         }
                                     }
                                 }
-                                if orderbooks_fetched > 0 {
-                                    tracing::info!("    OFI tracker: {} markets (fetched {} orderbooks)",
-                                        state.order_flow_tracker.market_count(), orderbooks_fetched);
+
+                                tracing::info!("    {} candidates passed basic filters (from {} total = {:.1}% reduction)",
+                                    candidates.len(), m.len(),
+                                    (1.0 - candidates.len() as f64 / m.len() as f64) * 100.0);
+
+                                // Phase 2: Fetch orderbooks only for candidates
+                                if !candidates.is_empty() {
+                                    tracing::info!("    Phase 2: Fetching orderbooks for {} candidates...", candidates.len());
+
+                                    let mut orderbooks_fetched = 0;
+                                    let mut orderbooks_empty = 0;
+                                    let mut orderbooks_failed = 0;
+
+                                    for market_id in &candidates {
+                                        match state.orderbook_provider.get_orderbook(market_id).await {
+                                            Ok(Some(orderbook)) => {
+                                                state.order_flow_tracker.record_orderbook(&orderbook);
+                                                orderbooks_fetched += 1;
+                                            }
+                                            Ok(None) => {
+                                                tracing::trace!("No orderbook for {}", market_id.as_str());
+                                            }
+                                            Err(e) => {
+                                                let err_str = e.to_string();
+                                                if err_str.contains("Rate limited") {
+                                                    tracing::error!("🚨 RATE LIMITED: {}", err_str);
+                                                    orderbooks_failed += 1;
+                                                } else if err_str.contains("empty") {
+                                                    orderbooks_empty += 1;
+                                                } else {
+                                                    orderbooks_failed += 1;
+                                                    tracing::warn!("Orderbook fetch failed for {}: {}", market_id.as_str(), e);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    tracing::info!("📊 Orderbook summary: {} candidates, {} successful, {} empty, {} failed",
+                                        candidates.len(), orderbooks_fetched, orderbooks_empty, orderbooks_failed);
+
+                                    if orderbooks_fetched > 0 {
+                                        tracing::info!("    ✓ OFI tracker now has {} markets with orderbook data",
+                                            state.order_flow_tracker.market_count());
+                                    } else {
+                                        tracing::warn!("    ⚠️  No successful orderbooks (all candidates empty/failed)");
+                                    }
+                                } else {
+                                    tracing::info!("    No candidates passed basic filters - skipping orderbook fetches");
                                 }
                             }
 

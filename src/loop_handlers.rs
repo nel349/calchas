@@ -462,7 +462,6 @@ pub async fn process_entry_signal(
         // Create order from signal (without executing through simulator)
         use crate::models::{Order, OrderId, OrderSide, OrderAction, OrderType};
         use rust_decimal::Decimal;
-        use rust_decimal_macros::dec;
 
         let order_id = OrderId::new(format!("sim_{}", uuid::Uuid::new_v4()));
         let side = match signal.side {
@@ -480,10 +479,14 @@ pub async fn process_entry_signal(
                 // Calculate contracts from dollar amount including fees
                 let dollar_amount = Decimal::from(signal.position_size);
 
-                // Determine fee based on order type
+                // Estimate fee per contract for position sizing
                 let fee_per_contract = match signal.order_type {
-                    crate::models::strategy::OrderType::Market => dec!(0.007),  // Taker fee
-                    crate::models::strategy::OrderType::Limit => dec!(-0.001),  // Maker rebate
+                    crate::models::strategy::OrderType::Market => {
+                        crate::kalshi::fees::calculate_kalshi_taker_fee(signal.recommended_price, 1)
+                    }
+                    crate::models::strategy::OrderType::Limit => {
+                        crate::kalshi::fees::calculate_kalshi_maker_fee(signal.recommended_price, 1)
+                    }
                 };
 
                 // Total cost per contract = price + fee
@@ -538,7 +541,7 @@ pub async fn process_entry_signal(
         };
 
         tracing::info!(
-            "✓ POSITION OPENED: {} ({} side) @ ${:.2} (qty: {}) | TP: ${:.2} | SL: ${:.2}",
+            "✓ POSITION OPENED: {} ({} side) @ ${:.4} (qty: {}) | TP: ${:.4} | SL: ${:.4}",
             signal.market_ticker,
             side_str,
             position.entry_price,
@@ -579,6 +582,11 @@ pub async fn update_and_check_positions(
         .iter()
         .map(|m| (m.id.clone(), m))
         .collect();
+
+    tracing::debug!(
+        "Received {} fresh markets from API for position updates",
+        markets.len()
+    );
 
     // Get positions to check (need to collect to avoid borrow issues)
     let position_ids: Vec<_> = state.positions.keys().cloned().collect();
@@ -700,6 +708,28 @@ pub async fn update_and_check_positions(
             position.current_price
         );
 
+        // DEBUG: Log full market state to verify prices are actually changing
+        tracing::debug!(
+            "  Market state: YES bid=${:.2} ask=${:.2} mid=${:.2} | NO bid=${:.2} ask=${:.2} mid=${:.2} | Vol={} OI={} Status={:?}",
+            market.yes_bid,
+            market.yes_ask,
+            market.yes_price,
+            market.no_bid,
+            market.no_ask,
+            market.no_price,
+            market.volume,
+            market.open_interest,
+            market.status
+        );
+
+        // DEBUG: Log ACTUAL exit target values to diagnose SL calculation bug
+        tracing::warn!(
+            "  EXIT TARGET DEBUG: Entry={:.6} | TP={:.6} | SL={:.6}",
+            position.entry_price,
+            position.exit_target.take_profit_price.unwrap_or_default(),
+            position.exit_target.stop_loss_price.unwrap_or_default()
+        );
+
         // Update position with current price
         let updated_position = {
             let mut updated = position.clone();
@@ -719,22 +749,24 @@ pub async fn update_and_check_positions(
             ""
         };
 
-        // Only show price change if it's meaningful (more than $0.01 difference)
+        // Only show price change if it's meaningful (more than $0.005 difference)
         let price_diff = (current_price - position.entry_price).abs();
-        let threshold = rust_decimal::Decimal::new(1, 2); // 0.01
+        let threshold = rust_decimal::Decimal::new(5, 3); // 0.005
 
         if price_diff >= threshold {
-            // Color-code arrows: green for up, red for down
+            // Color-code arrows: green for up, red for down, plain for unchanged
             let (change_symbol, color_start, color_end) = if price_change > rust_decimal::Decimal::ZERO {
-                ("↑", "\x1b[32m", "\x1b[0m")  // Green
+                ("↑", "\x1b[32m", "\x1b[0m")  // Green up
+            } else if price_change < rust_decimal::Decimal::ZERO {
+                ("↓", "\x1b[31m", "\x1b[0m")  // Red down
             } else {
-                ("↓", "\x1b[31m", "\x1b[0m")  // Red
+                ("→", "", "")  // Plain arrow for no change
             };
 
             // Use println! for proper ANSI color rendering
             // Add colored marker at end to highlight changed positions
             println!(
-                "\x1b[36m{}\x1b[0m  [{}/{}] {} | Entry ${:.2} {}{}{} ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2} {}●{}",
+                "\x1b[36m{}\x1b[0m  [{}/{}] {} | Entry ${:.4} {}{}{} ${:.4} | P&L: {}{:.2} | TP: ${:.4} SL: ${:.4} {}●{}",
                 Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ"),
                 side_str,
                 position.quantity,
@@ -754,7 +786,7 @@ pub async fn update_and_check_positions(
         } else {
             // Price hasn't changed meaningfully - show current price without arrow
             tracing::info!(
-                "  [{}/{}] {} | Entry ${:.2} → ${:.2} | P&L: {}{:.2} | TP: ${:.2} SL: ${:.2}",
+                "  [{}/{}] {} | Entry ${:.4} → ${:.4} | P&L: {}{:.2} | TP: ${:.4} SL: ${:.4}",
                 side_str,
                 position.quantity,
                 market.ticker,
@@ -863,10 +895,9 @@ async fn execute_exit(
     pm_position.mark_closed();
 
     // Calculate fees (taker fees for simulation)
-    use rust_decimal::Decimal;
-    use rust_decimal_macros::dec;
-    let entry_fees = (dec!(0.007) * pm_position.entry_price) * Decimal::from(pm_position.quantity);
-    let exit_fees = (dec!(0.007) * exit_price) * Decimal::from(pm_position.quantity);
+    use crate::kalshi::fees::calculate_kalshi_taker_fee;
+    let entry_fees = calculate_kalshi_taker_fee(pm_position.entry_price, pm_position.quantity);
+    let exit_fees = calculate_kalshi_taker_fee(exit_price, pm_position.quantity);
     let total_fees = entry_fees + exit_fees;
 
     // Create trade record using Trade::new()

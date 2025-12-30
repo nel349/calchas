@@ -49,11 +49,19 @@
 - Section 7.1: Main function flow (supervisor pattern)
 - Section 8: Complete data flow diagrams (entry/exit flows)
 - DO NOT invent new architectures - FOLLOW THE SPEC
-1. **No Mock Data** - Use real data or return "Not Implemented" (from Harbinger PRINCIPLES.md)
-2. **No Premature Abstractions** - Build real things first, extract patterns later
-3. **Simple Before Smart** - If-statements before ML models
-4. **Honest Code** - Name things what they actually are
-5. **Type Safety** - Use newtypes (MarketId, PositionId) to prevent ID mix-ups
+
+**SINGLE SOURCES OF TRUTH:**
+1. **`src/kalshi/fees.rs`** - THE ONLY place for Kalshi fee constants, formulas, and calculations
+   - All fee-related code MUST use functions from this file
+   - NEVER duplicate fee formulas in comments or other code
+   - Official sources documented at top of file
+   - When fees change, update ONE file only
+
+2. **No Mock Data** - Use real data or return "Not Implemented" (from Harbinger PRINCIPLES.md)
+3. **No Premature Abstractions** - Build real things first, extract patterns later
+4. **Simple Before Smart** - If-statements before ML models
+5. **Honest Code** - Name things what they actually are
+6. **Type Safety** - Use newtypes (MarketId, PositionId) to prevent ID mix-ups
 
 ### Rust Learning Philosophy
 - **Syllabus-Driven:** Work through `RUST_SYLLABUS.md` phase by phase

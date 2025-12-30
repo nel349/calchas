@@ -565,6 +565,40 @@ mod tests {
         assert_eq!(orderbook.no_asks[0].price, Decimal::new(55, 2)); // 0.55
         assert_eq!(orderbook.no_asks[0].quantity, 100);
     }
+
+    #[test]
+    fn test_orderbook_with_null_yes_no_arrays() {
+        // Test that we handle null values in yes/no arrays gracefully
+        // This is what was causing the "invalid type: null, expected a sequence" errors
+        let json = r#"{
+            "orderbook": {
+                "yes": null,
+                "no": [[55, 100]]
+            }
+        }"#;
+
+        let response: OrderbookResponse = serde_json::from_str(json).unwrap();
+        let orderbook = response.orderbook.unwrap();
+        assert_eq!(orderbook.yes.len(), 0); // null becomes empty vec
+        assert_eq!(orderbook.no.len(), 1);
+        assert_eq!(orderbook.no[0], (55, 100));
+    }
+
+    #[test]
+    fn test_orderbook_with_both_null_arrays() {
+        // Test both arrays null
+        let json = r#"{
+            "orderbook": {
+                "yes": null,
+                "no": null
+            }
+        }"#;
+
+        let response: OrderbookResponse = serde_json::from_str(json).unwrap();
+        let orderbook = response.orderbook.unwrap();
+        assert_eq!(orderbook.yes.len(), 0);
+        assert_eq!(orderbook.no.len(), 0);
+    }
 }
 
 // =============================================================================
@@ -582,11 +616,13 @@ pub struct OrderbookResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderbookData {
     /// YES side asks: array of [price_in_cents, contract_count]
-    #[serde(default)]
+    /// API sometimes returns null instead of empty array
+    #[serde(default, deserialize_with = "deserialize_orderbook_levels")]
     pub yes: Vec<(i64, u64)>,
 
     /// NO side asks: array of [price_in_cents, contract_count]
-    #[serde(default)]
+    /// API sometimes returns null instead of empty array
+    #[serde(default, deserialize_with = "deserialize_orderbook_levels")]
     pub no: Vec<(i64, u64)>,
 
     /// YES side asks in dollar strings (we ignore this - can be null or contain nulls)
@@ -596,6 +632,21 @@ pub struct OrderbookData {
     /// NO side asks in dollar strings (we ignore this - can be null or contain nulls)
     #[serde(default, skip_serializing, deserialize_with = "deserialize_nullable_array")]
     pub no_dollars: Vec<(String, u64)>,
+}
+
+/// Deserialize orderbook levels that might be null
+/// Returns empty vec if null, otherwise deserializes normally
+fn deserialize_orderbook_levels<'de, D>(deserializer: D) -> Result<Vec<(i64, u64)>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Deserialize;
+
+    // Deserialize as Option to handle null
+    let opt: Option<Vec<(i64, u64)>> = Option::deserialize(deserializer)?;
+
+    // Return empty vec if null, otherwise return the vec
+    Ok(opt.unwrap_or_default())
 }
 
 /// Deserialize arrays that might be null or contain null elements

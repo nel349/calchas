@@ -303,7 +303,13 @@ calchas/
 │   │   ├── mod.rs
 │   │   ├── position_manager.rs    # Track positions, check exits
 │   │   ├── order_executor.rs      # Place/cancel orders
-│   │   └── risk_manager.rs        # Enforce risk limits
+│   │   ├── risk_manager.rs        # Enforce risk limits
+│   │   ├── simulator.rs           # Simulated order fills for testing
+│   │   ├── exit_manager.rs        # Exit condition evaluation
+│   │   ├── metrics_tracker.rs     # Performance metrics and validation
+│   │   ├── price_tracker.rs       # Price history for momentum analysis
+│   │   ├── volume_tracker.rs      # Volume spike detection (Phase 1)
+│   │   └── order_flow_tracker.rs  # Order flow imbalance (Phase 2)
 │   │
 │   ├── storage/
 │   │   ├── mod.rs
@@ -539,6 +545,92 @@ main.rs
 - **Explicit risk checks:** Every position request goes through risk manager
 - **Daily stats in memory:** Fast access, backed by database
 - **Rejection reasons:** Clear why trade was blocked (for logging)
+
+### 6.6 Price Tracker (trading::price_tracker)
+
+**Responsibility:** Track market prices over time for momentum analysis
+
+**Key Components:**
+- Price snapshot storage (HashMap of market_id -> Vec<PriceSnapshot>)
+- Timestamp-based retention policy (2 hours default)
+
+**Core Methods:**
+- **record_price**: Store current market prices with timestamp
+- **calculate_momentum**: Calculate percentage price change over lookback period
+- **has_momentum**: Check if price movement exceeds threshold
+- **cleanup_all**: Remove snapshots older than retention period
+
+**Design Decisions:**
+- **Cold-start behavior:** Uses oldest available snapshot if full lookback period not yet collected
+- **Newest-first ordering:** Snapshots stored with newest first for efficient access
+- **Decimal arithmetic:** All price calculations use rust_decimal to avoid floating-point errors
+
+---
+
+### 6.7 Volume Tracker (trading::volume_tracker - Phase 1)
+
+**Responsibility:** Detect volume spikes indicating sharp money entering markets
+
+**Key Components:**
+- Volume snapshot storage (HashMap of market_id -> Vec<VolumeSnapshot>)
+- Rate-of-change calculation for spike detection
+- Timestamp-based retention policy (2 hours default)
+
+**Core Methods:**
+- **record_volume**: Store current market volume with timestamp
+- **calculate_volume_spike**: Calculate volume increase percentage over lookback period
+- **has_volume_spike**: Check if volume spike exceeds threshold
+- **cleanup_all**: Remove snapshots older than retention period
+
+**Volume Spike Formula:**
+```
+spike_pct = ((current_volume - old_volume) / time_elapsed_hours) / average_rate - 1.0
+```
+
+**Design Decisions:**
+- **Rate-based calculation:** Measures contracts per hour to normalize for time periods
+- **NaN/Infinity handling:** Returns None instead of 0% for invalid calculations
+- **Timestamp consistency:** Uses snapshot timestamps instead of current time for accurate calculations
+
+**Strategy Use Case:** Sharp money following in sports markets (detect when professionals enter positions)
+
+---
+
+### 6.8 Order Flow Tracker (trading::order_flow_tracker - Phase 2)
+
+**Responsibility:** Track buy/sell pressure via orderbook depth for HFT-style trading
+
+**Key Components:**
+- Order flow snapshot storage (HashMap of market_id -> Vec<OrderFlowSnapshot>)
+- Orderbook liquidity aggregation (top N levels, default 3)
+- Timestamp-based retention policy (2 hours default)
+
+**Core Methods:**
+- **record_orderbook**: Capture current orderbook state with bid/ask liquidity
+- **calculate_ofi**: Calculate Order Flow Imbalance metric
+- **has_order_flow_imbalance**: Check if OFI exceeds threshold
+- **cleanup_all**: Remove snapshots older than retention period
+
+**Order Flow Imbalance (OFI) Formula:**
+```
+OFI = (bid_liquidity - ask_liquidity) / (bid_liquidity + ask_liquidity)
+```
+
+**OFI Range:**
+- **+1.0:** All buy-side liquidity (maximum bullish pressure)
+- **0.0:** Balanced orderbook
+- **-1.0:** All sell-side liquidity (maximum bearish pressure)
+
+**Prediction Market Semantics:**
+- **bid_liquidity:** Sum of NO asks (selling NO = bullish on YES)
+- **ask_liquidity:** Sum of YES asks (selling YES = bearish on YES)
+
+**Design Decisions:**
+- **Top 3 levels:** Industry standard for professional traders
+- **Absolute value threshold:** Both +0.3 and -0.3 OFI pass 0.3 threshold
+- **Kalshi orderbook ordering:** Best prices are LAST in array, so reverse before aggregating
+
+**Strategy Use Case:** HFT-style orderbook pressure detection for short-term price prediction
 
 ---
 

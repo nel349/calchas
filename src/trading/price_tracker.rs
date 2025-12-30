@@ -78,7 +78,7 @@ impl PriceTracker {
         let current = &snapshots[0];
 
         // Try to find snapshot from lookback_period ago
-        let target_time = Utc::now() - lookback_period;
+        let target_time = current.timestamp - lookback_period;
 
         let old_snapshot = snapshots.iter()
             .find(|s| s.timestamp <= target_time)

@@ -104,6 +104,16 @@ pub struct StrategyFilters {
     /// Example: 10 = check volume spike over last 10 minutes
     pub volume_spike_lookback_minutes: Option<u32>,
 
+    // Order flow imbalance filters (buy/sell pressure detection)
+    /// Minimum order flow imbalance required (OFI)
+    /// Example: 0.3 = require 65% buy-side liquidity vs 35% sell-side
+    /// Range: 0.0 to 1.0 (absolute value)
+    ///   - 0.0 = balanced orderbook
+    ///   - 0.3 = 65/35 split (moderate imbalance)
+    ///   - 0.5 = 75/25 split (strong imbalance)
+    ///   - 1.0 = 100/0 split (extreme imbalance)
+    pub min_order_flow_imbalance: Option<Decimal>,
+
     // Orderbook filters (checked before entry execution)
     /// Maximum spread (in cents) to accept
     /// Example: 0.05 = reject if spread > 5 cents
@@ -275,6 +285,7 @@ mod tests {
                 momentum_lookback_minutes: None,
                 min_volume_spike_pct: None,
                 volume_spike_lookback_minutes: None,
+                min_order_flow_imbalance: None,
                 max_spread_cents: None,
                 min_best_price_quantity: None,
             },
@@ -353,6 +364,7 @@ mod tests {
             "momentum_lookback_minutes": null,
             "min_volume_spike_pct": null,
             "volume_spike_lookback_minutes": null,
+            "min_order_flow_imbalance": null,
             "max_spread_cents": null,
             "min_best_price_quantity": null
         }"#;
@@ -385,6 +397,7 @@ mod tests {
             "momentum_lookback_minutes": null,
             "min_volume_spike_pct": null,
             "volume_spike_lookback_minutes": null,
+            "min_order_flow_imbalance": null,
             "max_spread_cents": null,
             "min_best_price_quantity": null
         }"#;

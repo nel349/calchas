@@ -15,7 +15,7 @@
 //! let strategy = StrategyLoader::load("strategies/underdog_hunter.json")?;
 //! let markets: Vec<Market> = vec![/* fetch from API */];
 //!
-//! let signals = StrategyEvaluator::evaluate(&markets, &strategy, None)?;
+//! let signals = StrategyEvaluator::evaluate(&markets, &strategy, None, None, None)?;
 //! println!("Generated {} signals", signals.len());
 //! # Ok(())
 //! # }
@@ -63,6 +63,17 @@ enum VolumeCheckResult {
     NoData,
     /// Has data but spike is insufficient
     InsufficientSpike,
+}
+
+/// Result of order flow imbalance check (for detailed filtering stats)
+#[derive(Debug, Clone, Copy)]
+enum OrderFlowCheckResult {
+    /// Order flow imbalance check passed
+    Pass,
+    /// No order flow data available
+    NoData,
+    /// Has data but imbalance is insufficient
+    InsufficientImbalance,
 }
 
 impl std::fmt::Display for EvaluationError {
@@ -116,7 +127,7 @@ impl StrategyEvaluator {
     /// let strategy = StrategyLoader::load("strategies/underdog_hunter.json")?;
     /// let markets: Vec<Market> = vec![/* ... */];
     ///
-    /// let signals = StrategyEvaluator::evaluate(&markets, &strategy, None)?;
+    /// let signals = StrategyEvaluator::evaluate(&markets, &strategy, None, None, None)?;
     /// println!("Found {} signals", signals.len());
     /// # Ok(())
     /// # }
@@ -125,6 +136,8 @@ impl StrategyEvaluator {
         markets: &[Market],
         strategy: &Strategy,
         price_tracker: Option<&PriceTracker>,
+        volume_tracker: Option<&crate::trading::VolumeTracker>,
+        order_flow_tracker: Option<&crate::trading::OrderFlowTracker>,
     ) -> Result<Vec<EntrySignal>, EvaluationError> {
         // Check if strategy is active
         if !strategy.is_active() {
@@ -143,6 +156,12 @@ impl StrategyEvaluator {
         let mut rejected_momentum = 0;
         let mut rejected_momentum_no_data = 0;
         let mut rejected_momentum_insufficient = 0;
+        let mut rejected_volume_spike = 0;
+        let mut rejected_volume_spike_no_data = 0;
+        let mut rejected_volume_spike_insufficient = 0;
+        let mut rejected_order_flow = 0;
+        let mut rejected_order_flow_no_data = 0;
+        let mut rejected_order_flow_insufficient = 0;
         let total_markets = markets.len();
 
         // Filter markets and generate signals
@@ -193,6 +212,48 @@ impl StrategyEvaluator {
                         return false;
                     },
                 }
+
+                // Check volume spike filter (Phase 1)
+                let volume_spike_result = Self::check_volume_spike_detailed(
+                    market,
+                    strategy.filters.min_volume_spike_pct,
+                    strategy.filters.volume_spike_lookback_minutes,
+                    volume_tracker,
+                );
+                match volume_spike_result {
+                    VolumeCheckResult::Pass => {},
+                    VolumeCheckResult::NoData => {
+                        rejected_volume_spike += 1;
+                        rejected_volume_spike_no_data += 1;
+                        return false;
+                    },
+                    VolumeCheckResult::InsufficientSpike => {
+                        rejected_volume_spike += 1;
+                        rejected_volume_spike_insufficient += 1;
+                        return false;
+                    },
+                }
+
+                // Check order flow imbalance filter (Phase 2)
+                let order_flow_result = Self::check_order_flow_detailed(
+                    market,
+                    strategy.filters.min_order_flow_imbalance,
+                    order_flow_tracker,
+                );
+                match order_flow_result {
+                    OrderFlowCheckResult::Pass => {},
+                    OrderFlowCheckResult::NoData => {
+                        rejected_order_flow += 1;
+                        rejected_order_flow_no_data += 1;
+                        return false;
+                    },
+                    OrderFlowCheckResult::InsufficientImbalance => {
+                        rejected_order_flow += 1;
+                        rejected_order_flow_insufficient += 1;
+                        return false;
+                    },
+                }
+
                 true
             })
             .flat_map(|market| EntrySignal::from_market(market, strategy))
@@ -201,7 +262,7 @@ impl StrategyEvaluator {
         // Log filter rejection breakdown if no signals generated
         if signals.is_empty() && total_markets > 0 {
             tracing::warn!(
-                "Filter breakdown for {} ({} markets): category={}, price={}, volume={}, open_interest={}, time_window={}, momentum={} (no_data={}, insufficient={})",
+                "Filter breakdown for {} ({} markets): category={}, price={}, volume={}, open_interest={}, time_window={}, momentum={} (no_data={}, insufficient={}), volume_spike={} (no_data={}, insufficient={}), order_flow={} (no_data={}, insufficient={})",
                 strategy.name,
                 total_markets,
                 rejected_category,
@@ -211,7 +272,13 @@ impl StrategyEvaluator {
                 rejected_time_window,
                 rejected_momentum,
                 rejected_momentum_no_data,
-                rejected_momentum_insufficient
+                rejected_momentum_insufficient,
+                rejected_volume_spike,
+                rejected_volume_spike_no_data,
+                rejected_volume_spike_insufficient,
+                rejected_order_flow,
+                rejected_order_flow_no_data,
+                rejected_order_flow_insufficient
             );
         }
 
@@ -234,11 +301,13 @@ impl StrategyEvaluator {
         markets: &[Market],
         strategies: &[Strategy],
         price_tracker: Option<&PriceTracker>,
+        volume_tracker: Option<&crate::trading::VolumeTracker>,
+        order_flow_tracker: Option<&crate::trading::OrderFlowTracker>,
     ) -> Result<Vec<EntrySignal>, EvaluationError> {
         let mut all_signals = Vec::new();
 
         for strategy in strategies {
-            let signals = Self::evaluate(markets, strategy, price_tracker)?;
+            let signals = Self::evaluate(markets, strategy, price_tracker, volume_tracker, order_flow_tracker)?;
             all_signals.extend(signals);
         }
 
@@ -262,6 +331,8 @@ impl StrategyEvaluator {
         filters: &StrategyFilters,
         entry_side: &EntrySide,
         price_tracker: Option<&PriceTracker>,
+        volume_tracker: Option<&crate::trading::VolumeTracker>,
+        order_flow_tracker: Option<&crate::trading::OrderFlowTracker>,
     ) -> bool {
         // Must pass ALL filter checks
         Self::matches_category(market, &filters.categories, &filters.exclude_categories)
@@ -278,6 +349,17 @@ impl StrategyEvaluator {
                 filters.min_momentum_pct,
                 filters.momentum_lookback_minutes,
                 price_tracker,
+            )
+            && Self::matches_volume_spike(
+                market,
+                filters.min_volume_spike_pct,
+                filters.volume_spike_lookback_minutes,
+                volume_tracker,
+            )
+            && Self::matches_order_flow(
+                market,
+                filters.min_order_flow_imbalance,
+                order_flow_tracker,
             )
     }
 
@@ -530,6 +612,66 @@ impl StrategyEvaluator {
         matches!(
             Self::check_volume_spike_detailed(market, min_spike_pct, lookback_minutes, volume_tracker),
             VolumeCheckResult::Pass
+        )
+    }
+
+    /// Internal order flow imbalance check with detailed result (for filtering stats)
+    fn check_order_flow_detailed(
+        market: &Market,
+        min_imbalance: Option<Decimal>,
+        order_flow_tracker: Option<&crate::trading::OrderFlowTracker>,
+    ) -> OrderFlowCheckResult {
+        // If no order flow filter configured, pass
+        if min_imbalance.is_none() {
+            return OrderFlowCheckResult::Pass;
+        }
+
+        // If no tracker provided, pass
+        let tracker = match order_flow_tracker {
+            Some(t) => t,
+            None => return OrderFlowCheckResult::Pass,
+        };
+
+        let min_ofi = min_imbalance.unwrap();
+
+        // Calculate actual order flow imbalance
+        let actual_ofi = tracker.calculate_ofi(&market.id);
+
+        match actual_ofi {
+            None => OrderFlowCheckResult::NoData,
+            Some(ofi_value) => {
+                // Check absolute value (both +OFI and -OFI can be signals)
+                if ofi_value.abs() >= min_ofi {
+                    OrderFlowCheckResult::Pass
+                } else {
+                    OrderFlowCheckResult::InsufficientImbalance
+                }
+            }
+        }
+    }
+
+    /// Check if market has sufficient order flow imbalance (buy/sell pressure)
+    ///
+    /// # Arguments
+    ///
+    /// * `market` - The market to check
+    /// * `min_imbalance` - Minimum OFI required (absolute value)
+    /// * `order_flow_tracker` - Order flow tracker with orderbook history
+    ///
+    /// # Returns
+    ///
+    /// `true` if order flow imbalance filter passes or is not enabled, `false` otherwise
+    ///
+    /// **Note:** This checks absolute value, so both bullish (+OFI) and bearish (-OFI)
+    /// pressure signals are detected. The strategy can then decide which direction to trade.
+    pub fn matches_order_flow(
+        market: &Market,
+        min_imbalance: Option<Decimal>,
+        order_flow_tracker: Option<&crate::trading::OrderFlowTracker>,
+    ) -> bool {
+        matches!(
+            Self::check_order_flow_detailed(market, min_imbalance, order_flow_tracker),
+            OrderFlowCheckResult::Pass
         )
     }
 
@@ -972,6 +1114,7 @@ mod tests {
             momentum_lookback_minutes: None,
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1002,6 +1145,7 @@ mod tests {
             momentum_lookback_minutes: None,
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1036,6 +1180,7 @@ mod tests {
             momentum_lookback_minutes: None,
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1043,7 +1188,7 @@ mod tests {
         let strategy = create_test_strategy(filters, EntrySide::CheaperSide);
         let market = create_test_market(MarketCategory::Sports, dec!(0.15), dec!(0.85));
 
-        let signals = StrategyEvaluator::evaluate(&[market], &strategy, None).unwrap();
+        let signals = StrategyEvaluator::evaluate(&[market], &strategy, None, None, None).unwrap();
         assert_eq!(signals.len(), 1);
     }
 
@@ -1063,6 +1208,7 @@ mod tests {
             momentum_lookback_minutes: None,
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1070,7 +1216,7 @@ mod tests {
         let strategy = create_test_strategy(filters, EntrySide::CheaperSide);
         let market = create_test_market(MarketCategory::Sports, dec!(0.15), dec!(0.85));
 
-        let signals = StrategyEvaluator::evaluate(&[market], &strategy, None).unwrap();
+        let signals = StrategyEvaluator::evaluate(&[market], &strategy, None, None, None).unwrap();
         assert_eq!(signals.len(), 0);
     }
 
@@ -1090,6 +1236,7 @@ mod tests {
             momentum_lookback_minutes: None,
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1099,7 +1246,7 @@ mod tests {
 
         let market = create_test_market(MarketCategory::Sports, dec!(0.15), dec!(0.85));
 
-        let result = StrategyEvaluator::evaluate(&[market], &strategy, None);
+        let result = StrategyEvaluator::evaluate(&[market], &strategy, None, None, None);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -1123,6 +1270,7 @@ mod tests {
             momentum_lookback_minutes: None,
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1130,7 +1278,7 @@ mod tests {
         let strategy = create_test_strategy(filters, EntrySide::Both);
         let market = create_test_market(MarketCategory::Sports, dec!(0.45), dec!(0.55));
 
-        let signals = StrategyEvaluator::evaluate(&[market], &strategy, None).unwrap();
+        let signals = StrategyEvaluator::evaluate(&[market], &strategy, None, None, None).unwrap();
         assert_eq!(signals.len(), 2); // Both sides generate signals
     }
 
@@ -1150,6 +1298,7 @@ mod tests {
             momentum_lookback_minutes: None,
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1168,6 +1317,7 @@ mod tests {
             momentum_lookback_minutes: None,
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
+            min_order_flow_imbalance: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1179,7 +1329,7 @@ mod tests {
         let market2 = create_test_market(MarketCategory::Politics, dec!(0.20), dec!(0.80));
 
         let signals =
-            StrategyEvaluator::evaluate_all(&[market1, market2], &[strategy1, strategy2], None)
+            StrategyEvaluator::evaluate_all(&[market1, market2], &[strategy1, strategy2], None, None, None)
                 .unwrap();
 
         assert_eq!(signals.len(), 2); // One signal per strategy

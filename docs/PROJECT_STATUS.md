@@ -1,6 +1,6 @@
 # Calchas Project Status
 
-**Last Updated:** December 27, 2024
+**Last Updated:** December 30, 2024
 **Current Phase:** Phase 4 - Trading Logic (Week 7-8) 🚧 IN PROGRESS
 
 ---
@@ -75,13 +75,17 @@
 | Order Executor | ✅ Complete | `src/trading/order_executor.rs` | Signal→Order conversion, execution (15 tests) |
 | Position Manager | ✅ Complete | `src/trading/position_manager.rs` | Track positions, coordinate updates (7 tests) |
 | Metrics Tracker | ✅ Complete | `src/trading/metrics_tracker.rs` | Track performance, exit-to-live validation (24 tests) |
+| Price Tracker | ✅ Complete | `src/trading/price_tracker.rs` | Track price history for momentum analysis (12 tests) |
+| **Volume Tracker (Phase 1)** | ✅ Complete | `src/trading/volume_tracker.rs` | **Volume spike detection for sharp money following (16 tests)** |
+| **Order Flow Tracker (Phase 2)** | ✅ Complete | `src/trading/order_flow_tracker.rs` | **Order flow imbalance (OFI) for HFT-style trading (11 tests)** |
+| **Filter Integration** | ✅ Complete | `src/strategy/evaluator.rs` | **Integrated Phase 1 & 2 filters into main filter pipeline** |
 | **MAIN APP** | ❌ Not Started | `src/main.rs` | **Supervisor + 4 tasks (Section 7.1)** |
 | **Channels** | ❌ Not Started | `src/runtime/channels.rs` | **Broadcast/MPSC setup (Section 7.3)** |
 | **Tasks** | ❌ Not Started | `src/runtime/tasks/` | **4 concurrent tasks (Section 7.2)** |
 
 **Phase 4 Milestone:** ❌ `cargo run` starts bot, opens position (simulated), hits exit, closes profitably
 
-**NEXT STEP:** All 6 core trading components complete (80 tests passing). Now build runtime integration (channels + supervisor + tasks) per Section 7.
+**NEXT STEP:** All 10 core trading components complete (119 tests passing). Phase 1 (Volume Spike) & Phase 2 (Order Flow Imbalance) integrated and validated. Now build runtime integration (channels + supervisor + tasks) per Section 7.
 
 ---
 
@@ -127,11 +131,11 @@
 
 ## 📊 Overall Progress
 
-**Components Completed:** 29 / 42 (69%)
+**Components Completed:** 35 / 45 (78%)
 **Phase 1 Progress:** 100% (12/12 components) ✅ COMPLETE
 **Phase 2 Progress:** 100% (7/7 components) ✅ COMPLETE
 **Phase 3 Progress:** 100% (6/6 components) ✅ COMPLETE
-**Phase 4 Progress:** 67% (6/9 components) 🚧 IN PROGRESS
+**Phase 4 Progress:** 77% (10/13 components) 🚧 IN PROGRESS
 **Estimated Completion:** Week 14
 
 ---
@@ -193,7 +197,11 @@
 - [x] Daily performance tracking and metrics calculation
 - [x] Consecutive profitable day streak tracking
 - [x] Trade recording and historical analysis
-- [x] 80 total Phase 4 unit tests passing (4+14+16+15+7+24)
+- [x] Price tracking for momentum analysis (12 tests)
+- [x] **Volume spike detection (Phase 1)** - Track sudden volume increases for sharp money following (16 tests)
+- [x] **Order flow imbalance (Phase 2)** - Measure buy/sell pressure via orderbook depth (11 tests)
+- [x] **Integrated filter pipeline** - All Phase 1 & Phase 2 filters working in evaluator (8 integration tests)
+- [x] 119 total Phase 4 unit tests passing (4+14+16+15+7+24+12+16+11)
 
 **Phase 4 - Strategy Features (Partial Implementation):**
 - ⚠️ `trailing_stop_activation_pct` - Defined in strategy JSON but not implemented (trailing stops activate immediately)
@@ -312,7 +320,8 @@ None yet - just getting started!
 - **Production-ready auth:** RSA-PSS signatures with both PKCS#1 and PKCS#8 key format support
 - **Real data:** Fetching live markets from Kalshi production API (https://api.elections.kalshi.com)
 - **No caching:** Always fetch fresh data for accurate trading decisions
-- **Comprehensive testing:** 225 total tests passing (145 Phases 1-3 + 80 Phase 4)
+- **Comprehensive testing:** 370 total tests passing (292 library + 22 integration + 48 doctests + 8 bench)
+- **Code quality:** 6 bugs fixed during Phase 1 & 2 code reviews (2 CRITICAL show-stoppers prevented)
 - **Exit-to-live validation:** Metrics tracker implements PRD Section 2.4 criteria (7+ consecutive profitable days, net positive ROI, max 15% single-day loss)
 
 ---
@@ -321,4 +330,5 @@ None yet - just getting started!
 - `RUST_SYLLABUS.md` - Rust learning checklist (this directory)
 - `TECHNICAL_ARCHITECTURE.md` - System design reference (this directory)
 - `Calchas_PRD_v1.md` - Product requirements (this directory)
+- `INDICATOR_STRATEGY_PLAN.md` - Professional indicator-based strategy plan (Phase 1 & 2 complete)
 - `../CLAUDE.md` - Project context and guardrails

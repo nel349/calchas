@@ -88,7 +88,7 @@ impl VolumeTracker {
         }
 
         let current = &snapshots[0];
-        let target_time = Utc::now() - lookback_period;
+        let target_time = current.timestamp - lookback_period;
 
         // Find snapshot from lookback_period ago
         let old_snapshot = snapshots.iter()
@@ -127,7 +127,8 @@ impl VolumeTracker {
         // Calculate spike percentage: (recent / average - 1) * 100
         let spike_pct = ((recent_rate / avg_rate) - 1.0) * 100.0;
 
-        Some(Decimal::from_f64_retain(spike_pct).unwrap_or(Decimal::ZERO))
+        // Return None if calculation produced NaN or Infinity (invalid result)
+        Decimal::from_f64_retain(spike_pct)
     }
 
     /// Check if a market has a volume spike >= X% in the lookback period

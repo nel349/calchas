@@ -94,6 +94,16 @@ pub struct StrategyFilters {
     /// Example: 60 = check price change over last hour
     pub momentum_lookback_minutes: Option<u32>,
 
+    // Volume spike filters (sharp money detection)
+    /// Minimum volume spike percentage required in lookback period
+    /// Example: 50.0 = volume rate must be 50% above average
+    /// This detects sharp money entering (sudden increase in trading activity)
+    pub min_volume_spike_pct: Option<Decimal>,
+
+    /// Lookback period for volume spike calculation (in minutes)
+    /// Example: 10 = check volume spike over last 10 minutes
+    pub volume_spike_lookback_minutes: Option<u32>,
+
     // Orderbook filters (checked before entry execution)
     /// Maximum spread (in cents) to accept
     /// Example: 0.05 = reject if spread > 5 cents
@@ -263,6 +273,8 @@ mod tests {
                 max_time_to_event_minutes: Some(2880),
                 min_momentum_pct: None,
                 momentum_lookback_minutes: None,
+                min_volume_spike_pct: None,
+                volume_spike_lookback_minutes: None,
                 max_spread_cents: None,
                 min_best_price_quantity: None,
             },
@@ -339,6 +351,8 @@ mod tests {
             "max_time_to_event_minutes": null,
             "min_momentum_pct": null,
             "momentum_lookback_minutes": null,
+            "min_volume_spike_pct": null,
+            "volume_spike_lookback_minutes": null,
             "max_spread_cents": null,
             "min_best_price_quantity": null
         }"#;
@@ -369,6 +383,8 @@ mod tests {
             "max_time_to_event_minutes": null,
             "min_momentum_pct": null,
             "momentum_lookback_minutes": null,
+            "min_volume_spike_pct": null,
+            "volume_spike_lookback_minutes": null,
             "max_spread_cents": null,
             "min_best_price_quantity": null
         }"#;

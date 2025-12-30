@@ -54,6 +54,17 @@ enum MomentumCheckResult {
     InsufficientMovement,
 }
 
+/// Result of volume spike check (for detailed filtering stats)
+#[derive(Debug, Clone, Copy)]
+enum VolumeCheckResult {
+    /// Volume spike check passed
+    Pass,
+    /// No volume data available (<3 snapshots)
+    NoData,
+    /// Has data but spike is insufficient
+    InsufficientSpike,
+}
+
 impl std::fmt::Display for EvaluationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -458,6 +469,67 @@ impl StrategyEvaluator {
         matches!(
             Self::check_momentum_detailed(market, min_momentum_pct, lookback_minutes, price_tracker),
             MomentumCheckResult::Pass
+        )
+    }
+
+    /// Internal volume spike check with detailed result (for filtering stats)
+    fn check_volume_spike_detailed(
+        market: &Market,
+        min_spike_pct: Option<Decimal>,
+        lookback_minutes: Option<u32>,
+        volume_tracker: Option<&crate::trading::VolumeTracker>,
+    ) -> VolumeCheckResult {
+        // If no volume spike filter configured, pass
+        if min_spike_pct.is_none() || lookback_minutes.is_none() {
+            return VolumeCheckResult::Pass;
+        }
+
+        // If no volume tracker provided, pass
+        let tracker = match volume_tracker {
+            Some(t) => t,
+            None => return VolumeCheckResult::Pass,
+        };
+
+        let min_pct = min_spike_pct.unwrap();
+        let lookback_mins = lookback_minutes.unwrap();
+        let lookback_duration = Duration::minutes(lookback_mins as i64);
+
+        // Calculate actual volume spike
+        let actual_spike = tracker.calculate_volume_spike(&market.id, lookback_duration);
+
+        match actual_spike {
+            None => VolumeCheckResult::NoData,
+            Some(spike_value) => {
+                if spike_value >= min_pct {
+                    VolumeCheckResult::Pass
+                } else {
+                    VolumeCheckResult::InsufficientSpike
+                }
+            }
+        }
+    }
+
+    /// Check if market has sufficient volume spike (sharp money detection)
+    ///
+    /// # Arguments
+    ///
+    /// * `market` - The market to check
+    /// * `min_spike_pct` - Minimum volume spike percentage required
+    /// * `lookback_minutes` - How far back to look for volume history
+    /// * `volume_tracker` - Volume tracker with historical data
+    ///
+    /// # Returns
+    ///
+    /// `true` if volume spike filter passes or is not enabled, `false` otherwise
+    pub fn matches_volume_spike(
+        market: &Market,
+        min_spike_pct: Option<Decimal>,
+        lookback_minutes: Option<u32>,
+        volume_tracker: Option<&crate::trading::VolumeTracker>,
+    ) -> bool {
+        matches!(
+            Self::check_volume_spike_detailed(market, min_spike_pct, lookback_minutes, volume_tracker),
+            VolumeCheckResult::Pass
         )
     }
 
@@ -898,6 +970,8 @@ mod tests {
             max_time_to_event_minutes: None,
             min_momentum_pct: None,
             momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -926,6 +1000,8 @@ mod tests {
             max_time_to_event_minutes: Some(120), // min > max
             min_momentum_pct: None,
             momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -958,6 +1034,8 @@ mod tests {
             max_time_to_event_minutes: Some(2880),
             min_momentum_pct: None,
             momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -983,6 +1061,8 @@ mod tests {
             max_time_to_event_minutes: None,
             min_momentum_pct: None,
             momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1008,6 +1088,8 @@ mod tests {
             max_time_to_event_minutes: None,
             min_momentum_pct: None,
             momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1039,6 +1121,8 @@ mod tests {
             max_time_to_event_minutes: None,
             min_momentum_pct: None,
             momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1064,6 +1148,8 @@ mod tests {
             max_time_to_event_minutes: None,
             min_momentum_pct: None,
             momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1080,6 +1166,8 @@ mod tests {
             max_time_to_event_minutes: None,
             min_momentum_pct: None,
             momentum_lookback_minutes: None,
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };

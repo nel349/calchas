@@ -8,7 +8,7 @@
 
 use calchas::strategy::{StrategyLoader, StrategyEvaluator};
 use calchas::models::{Market, MarketId, MarketCategory, MarketStatus};
-use calchas::trading::PriceTracker;
+use calchas::trading::{PriceTracker, VolumeTracker};
 use chrono::{Duration, Utc};
 use rust_decimal_macros::dec;
 
@@ -161,9 +161,10 @@ fn test_full_strategy_evaluation_flow() {
     assert_eq!(signal.side, calchas::strategy::SignalSide::Yes);
     assert_eq!(signal.recommended_price, dec!(0.15));
 
-    // Verify timing (now using close_time which is 23 hours in the test data)
-    assert!(signal.time_to_event_minutes >= 1374.0);  // 22.9 hours * 60
-    assert!(signal.time_to_event_minutes <= 1386.0);  // 23.1 hours * 60
+    // Verify timing (sports market uses event_time which is 24 hours in the test data)
+    // After timing bug fix: crypto markets use close_time, sports markets use event_time
+    assert!(signal.time_to_event_minutes >= 1434.0);  // 23.9 hours * 60
+    assert!(signal.time_to_event_minutes <= 1446.0);  // 24.1 hours * 60
 
     // Verify market context
     assert_eq!(signal.market_volume, 5000);
@@ -323,6 +324,8 @@ fn test_momentum_filter_integration() {
             max_time_to_event_minutes: None,
             min_momentum_pct: Some(dec!(5.0)),  // Require 5% movement
             momentum_lookback_minutes: Some(60),  // Over last hour
+            min_volume_spike_pct: None,
+            volume_spike_lookback_minutes: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         },
@@ -469,4 +472,109 @@ fn test_orderbook_structure() {
     // Spread = 0.56 - 0.51 = 0.05
     let spread = orderbook.spread().unwrap();
     assert_eq!(spread, dec!(0.05));
+}
+
+#[test]
+fn test_volume_spike_detection_integration() {
+    // Test that VolumeTracker works with StrategyEvaluator
+    let mut volume_tracker = VolumeTracker::new();
+
+    let market = Market {
+        id: MarketId::new("NBA-GAME-001".to_string()),
+        ticker: "LAKERS-WIN".to_string(),
+        title: "Will Lakers win tonight?".to_string(),
+        event_ticker: "KXNBAGAME-001".to_string(),
+        category: MarketCategory::Sports,
+        sub_category: Some("NBA".to_string()),
+        status: MarketStatus::Active,
+        yes_price: dec!(0.55),
+        no_price: dec!(0.45),
+        yes_bid: dec!(0.54),
+        yes_ask: dec!(0.56),
+        no_bid: dec!(0.44),
+        no_ask: dec!(0.46),
+        volume: 10000,
+        open_interest: 5000,
+        event_time: Utc::now() + Duration::hours(2),
+        close_time: Utc::now() + Duration::hours(2),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    // Simulate volume history: steady baseline then sudden spike
+    let now = Utc::now();
+
+    // Insert in chronological order (oldest to newest)
+    // Baseline: 1000 contracts/hour for 1 hour
+    volume_tracker.insert_test_snapshot(&market.id, 0, now - Duration::hours(1));
+    volume_tracker.insert_test_snapshot(&market.id, 500, now - Duration::minutes(30));
+
+    // Recent spike: 2000 contracts in last 10 minutes = 12000/hour rate
+    // This is 12x the baseline (1000/hour), so 1100% spike
+    volume_tracker.insert_test_snapshot(&market.id, 1000, now - Duration::minutes(10));
+    volume_tracker.insert_test_snapshot(&market.id, 3000, now);
+
+    // Test the volume spike calculation directly
+    let spike_pct = volume_tracker
+        .calculate_volume_spike(&market.id, Duration::minutes(10))
+        .expect("Should have volume spike data");
+
+    // Should show massive spike (2000 contracts in 10 min vs 1000 contracts in hour average)
+    assert!(spike_pct > dec!(100.0), "Expected >100% volume spike, got {}", spike_pct);
+
+    // Test with evaluator's matches_volume_spike function
+    let matches = calchas::strategy::StrategyEvaluator::matches_volume_spike(
+        &market,
+        Some(dec!(75.0)),  // 75% spike threshold (from sharp-money-follower)
+        Some(10),          // 10 minute lookback
+        Some(&volume_tracker),
+    );
+
+    assert!(matches, "Market should match volume spike filter");
+
+    // Test that it rejects when spike is too small
+    let no_match = calchas::strategy::StrategyEvaluator::matches_volume_spike(
+        &market,
+        Some(dec!(2000.0)),  // Impossible 2000% threshold
+        Some(10),
+        Some(&volume_tracker),
+    );
+
+    assert!(!no_match, "Market should NOT match with very high threshold");
+}
+
+#[test]
+fn test_volume_spike_filter_with_no_data() {
+    // Test that volume spike filter passes when no tracker provided
+    let market = Market {
+        id: MarketId::new("TEST-001".to_string()),
+        ticker: "TEST".to_string(),
+        title: "Test Market".to_string(),
+        event_ticker: "TEST-EVENT".to_string(),
+        category: MarketCategory::Sports,
+        sub_category: None,
+        status: MarketStatus::Active,
+        yes_price: dec!(0.50),
+        no_price: dec!(0.50),
+        yes_bid: dec!(0.49),
+        yes_ask: dec!(0.51),
+        no_bid: dec!(0.49),
+        no_ask: dec!(0.51),
+        volume: 1000,
+        open_interest: 500,
+        event_time: Utc::now() + Duration::hours(1),
+        close_time: Utc::now() + Duration::hours(1),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    // When no tracker provided, filter should pass (allows trading to continue)
+    let matches = calchas::strategy::StrategyEvaluator::matches_volume_spike(
+        &market,
+        Some(dec!(75.0)),
+        Some(10),
+        None,  // No tracker
+    );
+
+    assert!(matches, "Volume spike filter should pass when no tracker provided");
 }

@@ -3,7 +3,7 @@
   "name": "Crypto Fast Momentum Scalper",
   "description": "Scalps 2-5% gains from crypto markets in final 10 minutes. Catches rapid momentum swings, exits quickly. Requires 2%+ momentum in last 15 minutes.",
   "version": "1.0.0",
-  "enabled": true,
+  "enabled": false,
 
   "filters": {
     "categories": null,

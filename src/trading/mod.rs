@@ -15,6 +15,7 @@ pub mod order_executor;
 pub mod position_manager;
 pub mod metrics_tracker;
 pub mod price_tracker;
+pub mod volume_tracker;
 pub mod orderbook_provider;
 
 // Re-exports
@@ -26,4 +27,5 @@ pub use order_executor::OrderExecutor;
 pub use position_manager::PositionManager;
 pub use metrics_tracker::{MetricsTracker, SimulationMetrics, ExitToLiveDecision, DailyRecord};
 pub use price_tracker::PriceTracker;
+pub use volume_tracker::VolumeTracker;
 pub use orderbook_provider::{OrderbookProvider, SimulatedOrderbookProvider, RealOrderbookProvider, OrderbookError};

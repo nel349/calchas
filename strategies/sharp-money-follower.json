@@ -1,0 +1,55 @@
+{
+  "id": "sharp-money-follower",
+  "name": "Sharp Money Follower",
+  "description": "Follows sharp action in sports markets via volume spikes. Detects professional bettors entering positions by tracking sudden increases in trading activity.",
+  "version": "1.0.0",
+  "enabled": false,
+
+  "filters": {
+    "categories": null,
+    "exclude_categories": null,
+    "series_ticker": ["KXNBAGAME", "KXNFLGAME", "KXNCAAWBGAME"],
+
+    "min_price": null,
+    "max_price": null,
+
+    "min_volume": 5000,
+    "min_open_interest": null,
+
+    "min_time_to_event_minutes": null,
+    "max_time_to_event_minutes": null,
+
+    "min_momentum_pct": null,
+    "momentum_lookback_minutes": null,
+
+    "min_volume_spike_pct": "75.0",
+    "volume_spike_lookback_minutes": 10,
+
+    "max_spread_cents": "0.05",
+    "min_best_price_quantity": 100
+  },
+
+  "entry_rules": {
+    "side": "CheaperSide",
+    "position_size": 100,
+    "position_size_unit": "Dollars",
+    "order_type": "Market",
+    "limit_price_offset": null
+  },
+
+  "exit_rules": {
+    "take_profit_pct": "5.0",
+    "stop_loss_pct": "2.0",
+    "trailing_stop_pct": null,
+    "trailing_stop_activation_pct": null,
+    "max_hold_time_minutes": 120,
+    "exit_order_type": "Market"
+  },
+
+  "risk_limits": {
+    "max_concurrent_positions": 3,
+    "max_daily_loss_usd": "50.00",
+    "max_position_loss_usd": "15.00",
+    "loss_cooldown_minutes": 30
+  }
+}

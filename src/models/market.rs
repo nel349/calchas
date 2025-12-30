@@ -114,6 +114,18 @@ impl Market {
     pub fn is_category(&self, category: &MarketCategory) -> bool {
         self.category == *category
     }
+
+    /// Determine if this is a crypto market based on event ticker pattern.
+    ///
+    /// Crypto markets (KXBTC, KXETH) have accurate close_time (to the minute).
+    /// Sports/Politics markets have close_time as placeholder (~14 days out),
+    /// and use event_time for actual settlement.
+    ///
+    /// This is used by strategy evaluation to determine which timestamp to use
+    /// for time-based filtering.
+    pub fn is_crypto_market(&self) -> bool {
+        self.event_ticker.starts_with("KXBTC") || self.event_ticker.starts_with("KXETH")
+    }
 }
 
 // =============================================================================

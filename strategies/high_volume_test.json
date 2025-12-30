@@ -16,7 +16,7 @@
   },
   "entry_rules": {
     "side": "CheaperSide",
-    "position_size": 1,
+    "position_size": 2,
     "position_size_unit": "Dollars",
     "order_type": "Market",
     "limit_price_offset": null

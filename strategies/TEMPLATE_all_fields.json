@@ -1,0 +1,155 @@
+{
+  "_comment": "=================================================================",
+  "_comment": "STRATEGY TEMPLATE - ALL POSSIBLE FIELDS DOCUMENTED",
+  "_comment": "This is a REFERENCE template showing every field available",
+  "_comment": "Copy this file and remove fields you don't need (set to null)",
+  "_comment": "Validated against: src/models/strategy.rs",
+  "_comment": "=================================================================",
+
+  "id": "template-strategy-v1",
+  "name": "Template Strategy Name",
+  "description": "Detailed description of what this strategy does and why",
+  "version": "1.0.0",
+  "enabled": false,
+
+  "_comment_metadata": "=== METADATA FIELDS (REQUIRED) ===",
+  "_id": "Unique identifier (string, kebab-case recommended)",
+  "_name": "Human-readable name",
+  "_description": "What does this strategy do?",
+  "_version": "Semantic versioning (major.minor.patch)",
+  "_enabled": "true = active, false = skip this strategy",
+
+  "filters": {
+    "_comment": "=== MARKET SELECTION FILTERS ===",
+    "_comment": "All filters are OPTIONAL (use null to disable)",
+
+    "categories": null,
+    "_categories_WARNING": "⚠️ KALSHI API DOES NOT SEND CATEGORY DATA - IT'S ALWAYS EMPTY!",
+    "_categories_DO_NOT_USE": "DO NOT USE THIS FIELD! Use series_ticker instead!",
+    "_categories_note": "This field exists but Kalshi never populates it. Always set to null.",
+
+    "exclude_categories": null,
+    "_exclude_WARNING": "⚠️ DOES NOT WORK - Kalshi doesn't send category data!",
+    "_exclude_note": "Always set to null. Use series_ticker to filter instead.",
+
+    "series_ticker": ["KXNBAGAME", "KXNFLGAME"],
+    "_series_IMPORTANT": "✅ USE THIS TO FILTER BY SPORT/TYPE - THIS ACTUALLY WORKS!",
+    "_series_note": "Kalshi series tickers. If null, fetches all markets. If specified, ONLY fetches from these series.",
+    "_series_examples": "KXNBAGAME (NBA), KXNFLGAME (NFL), KXNHLGAME (NHL), KXMLBGAME (MLB), KXWEATHER (weather), KXPOLITICS (politics)",
+
+    "min_price": "0.10",
+    "_min_price_note": "Minimum price in dollars (0.00 to 1.00). Market must be >= this price. Example: 0.10 = only markets priced at 10¢ or higher.",
+
+    "max_price": "0.90",
+    "_max_price_note": "Maximum price in dollars (0.00 to 1.00). Market must be <= this price. Example: 0.90 = only markets priced at 90¢ or lower.",
+
+    "min_volume": 1000,
+    "_min_volume_note": "Minimum total volume (contracts traded). Higher = more liquid. Example: 1000 = reject if fewer than 1000 contracts traded total.",
+
+    "min_open_interest": 500,
+    "_min_open_interest_note": "Minimum open interest (outstanding contracts). Higher = more active. Example: 500 = reject if fewer than 500 contracts currently open.",
+
+    "min_time_to_event_minutes": 60,
+    "_min_time_note": "Minimum time until event resolution (minutes). Example: 60 = reject events resolving in less than 1 hour.",
+
+    "max_time_to_event_minutes": 1440,
+    "_max_time_note": "Maximum time until event resolution (minutes). Example: 1440 = reject events resolving in more than 24 hours.",
+
+    "min_momentum_pct": "5.0",
+    "_momentum_pct_note": "Minimum price change % in lookback period. Example: 5.0 = price must have moved at least 5% in the lookback window. Requires momentum_lookback_minutes.",
+
+    "momentum_lookback_minutes": 60,
+    "_momentum_lookback_note": "How far back to measure momentum (minutes). Example: 60 = check price change over last hour. Requires min_momentum_pct.",
+
+    "max_spread_cents": "0.05",
+    "_spread_note": "Maximum bid-ask spread in cents. Example: 0.05 = reject if spread > 5¢. Ensures tight orderbook.",
+
+    "min_best_price_quantity": 50,
+    "_best_price_qty_note": "Minimum contracts available at best price. Example: 50 = reject if fewer than 50 contracts available at current best price. Ensures depth."
+  },
+
+  "entry_rules": {
+    "_comment": "=== ENTRY EXECUTION RULES ===",
+
+    "side": "ExpensiveSide",
+    "_side_options": "Yes = always buy YES, No = always buy NO, CheaperSide = buy whichever is < 50¢, ExpensiveSide = buy whichever is > 50¢, Both = trade both sides",
+    "_side_examples": {
+      "Yes": "Always bet YES regardless of price",
+      "No": "Always bet NO regardless of price",
+      "CheaperSide": "Underdog hunter (buy cheap side only)",
+      "ExpensiveSide": "Favorite hunter (buy expensive side only)",
+      "Both": "Volatility play (hedge both sides)"
+    },
+
+    "position_size": 100,
+    "_position_size_note": "Amount to trade. Meaning depends on position_size_unit.",
+
+    "position_size_unit": "Contracts",
+    "_unit_options": "Contracts = fixed number of contracts (e.g., 100 contracts), Dollars = dollar amount including fees (e.g., $100 total investment)",
+    "_unit_example_contracts": "position_size: 100, unit: Contracts = buy exactly 100 contracts",
+    "_unit_example_dollars": "position_size: 100, unit: Dollars = spend $100 total (contracts calculated based on price)",
+
+    "order_type": "Market",
+    "_order_type_options": "Market = immediate execution (pays taker fee ~3%), Limit = wait for price (pays maker fee ~0.5%)",
+    "_order_type_tradeoff": "Market = fast but expensive, Limit = cheap but might not fill",
+
+    "limit_price_offset": "-0.01",
+    "_limit_offset_note": "Only used if order_type = Limit. Offset from current price in dollars.",
+    "_limit_offset_examples": {
+      "negative": "-0.01 = bid 1¢ BELOW current price (more likely to get maker fee, less likely to fill immediately)",
+      "zero": "0.00 = bid at current price (might get maker or taker fee depending on timing)",
+      "positive": "0.01 = bid 1¢ ABOVE current price (more likely to fill immediately, might pay taker fee)"
+    }
+  },
+
+  "exit_rules": {
+    "_comment": "=== EXIT CRITERIA (PROFIT TARGETS & STOP LOSSES) ===",
+    "_comment": "All percentages are relative to ENTRY PRICE",
+
+    "take_profit_pct": "20.0",
+    "_take_profit_note": "Exit when profit reaches this % of entry price. Example: Bought at 50¢, take_profit 20% = exit when price hits 60¢ (10¢ profit = 20% of 50¢).",
+    "_take_profit_math": "Exit price = entry_price × (1 + take_profit_pct / 100)",
+
+    "stop_loss_pct": "30.0",
+    "_stop_loss_note": "Exit when loss reaches this % of entry price. Example: Bought at 50¢, stop_loss 30% = exit when price drops to 35¢ (15¢ loss = 30% of 50¢).",
+    "_stop_loss_math": "Exit price = entry_price × (1 - stop_loss_pct / 100)",
+
+    "trailing_stop_pct": "5.0",
+    "_trailing_note": "Distance from peak price before triggering exit. Only activates after trailing_stop_activation_pct is hit.",
+    "_trailing_example": "Peak price 80¢, trailing 5% = exit if price drops to 76¢ (4¢ drop from peak).",
+
+    "trailing_stop_activation_pct": "10.0",
+    "_trailing_activation_note": "Profit % required before trailing stop activates. Example: 10% = trailing only starts after 10% profit is reached.",
+    "_trailing_full_example": "Buy at 50¢. Hits 55¢ (10% profit) → trailing activates. Peak 60¢. If drops to 57¢ (5% from peak) → exit.",
+
+    "max_hold_time_minutes": 1440,
+    "_max_hold_note": "Maximum time to hold position (minutes). Force exit after this time regardless of P&L. Example: 1440 = force exit after 24 hours.",
+
+    "exit_order_type": "Market",
+    "_exit_order_note": "Market = immediate exit (pays taker fee), Limit = wait for price (pays maker fee). Usually Market for exits (guarantee execution)."
+  },
+
+  "risk_limits": {
+    "_comment": "=== RISK MANAGEMENT CONSTRAINTS ===",
+
+    "max_concurrent_positions": 5,
+    "_concurrent_note": "Maximum number of positions open at same time. Example: 5 = stop opening new positions when 5 are already open.",
+
+    "max_daily_loss_usd": "100.00",
+    "_daily_loss_note": "Maximum total loss per day in USD. Example: $100 = stop trading for the day if total losses reach $100.",
+
+    "max_position_loss_usd": "50.00",
+    "_position_loss_note": "Maximum loss for single position in USD. Hard stop per position. Example: $50 = force close position if loss exceeds $50 (overrides stop_loss_pct).",
+
+    "loss_cooldown_minutes": 60,
+    "_cooldown_note": "Minutes to wait after hitting max_daily_loss before resuming trading. Example: 60 = wait 1 hour after hitting daily loss limit before opening new positions."
+  },
+
+  "_comment_footer": "=================================================================",
+  "_field_count": "TOTAL FIELDS: 35 (6 metadata + 12 filters + 5 entry + 8 exit + 4 risk)",
+  "_required_fields": "id, name, description, version, enabled, filters, entry_rules, exit_rules, risk_limits",
+  "_all_other_fields": "Optional - set to null if not needed",
+  "_validation": "Validated against src/models/strategy.rs (lines 1-376)",
+  "_usage": "Copy this file, rename it, remove _comment fields, set unused fields to null",
+  "_comment": "================================================================="
+}

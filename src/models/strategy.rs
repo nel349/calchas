@@ -60,13 +60,17 @@ pub enum PositionSizeUnit {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyFilters {
     // Category filters
+    // ⚠️ WARNING: Kalshi API does NOT populate category field - it's always empty!
+    // DO NOT USE categories/exclude_categories - use series_ticker instead!
     pub categories: Option<Vec<MarketCategory>>,
     pub exclude_categories: Option<Vec<MarketCategory>>,
 
     // Series filter (e.g., ["KXNBAGAME", "KXNFLGAME"] for NBA and NFL games)
+    /// ✅ USE THIS INSTEAD OF CATEGORIES - Kalshi actually sends this!
     /// Kalshi series tickers to fetch markets from
     /// Example: ["KXNBAGAME"] (NBA games only), ["KXNBAGAME", "KXNFLGAME"] (NBA + NFL)
     /// If specified, only markets from these series will be fetched
+    /// Common series: KXNBAGAME, KXNFLGAME, KXNHLGAME, KXMLBGAME
     pub series_ticker: Option<Vec<String>>,
 
     // Price range filters (in cents, 0-100)

@@ -359,16 +359,23 @@ impl StrategyEvaluator {
     /// Calculates minutes until market closes and checks if it's within [min, max] bounds.
     /// Markets that are already closed (negative duration) are rejected.
     ///
-    /// Note: We use close_time (when trading ends) not event_time (when event happens)
-    /// because that's what the Kalshi API supports for filtering, and it's more relevant
-    /// for trading (we care about how much time we have to trade, not when the event occurs).
+    /// TIMING BUG FIX: Different market types use different timing fields:
+    /// - Crypto markets (KXBTC, KXETH): use close_time (accurate to the minute)
+    /// - Sports/Politics markets: use event_time (close_time is placeholder ~14 days out)
     pub fn matches_time_to_event(
         market: &Market,
         min_minutes: Option<u32>,
         max_minutes: Option<u32>,
     ) -> bool {
         let now = Utc::now();
-        let time_to_close = market.close_time.signed_duration_since(now);
+
+        // Use close_time for crypto (accurate), event_time for sports (close_time is placeholder)
+        let time_to_close = if market.is_crypto_market() {
+            market.close_time.signed_duration_since(now)
+        } else {
+            market.event_time.signed_duration_since(now)
+        };
+
         let minutes = time_to_close.num_seconds() as f64 / 60.0;
 
         // Reject markets that are already closed (negative minutes)
@@ -830,6 +837,7 @@ mod tests {
     #[test]
     fn test_matches_time_to_event_too_soon() {
         let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+        market.event_ticker = "KXBTC15M".to_string(); // Crypto market uses close_time
         market.close_time = Utc::now() + Duration::hours(1);
 
         assert!(!StrategyEvaluator::matches_time_to_event(
@@ -842,6 +850,7 @@ mod tests {
     #[test]
     fn test_matches_time_to_event_too_late() {
         let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+        market.event_ticker = "KXBTC15M".to_string(); // Crypto market uses close_time
         market.close_time = Utc::now() + Duration::hours(48);
 
         assert!(!StrategyEvaluator::matches_time_to_event(
@@ -854,6 +863,7 @@ mod tests {
     #[test]
     fn test_matches_time_to_event_past_event() {
         let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+        market.event_ticker = "KXBTC15M".to_string(); // Crypto market uses close_time
         market.close_time = Utc::now() - Duration::hours(1);
 
         assert!(!StrategyEvaluator::matches_time_to_event(
@@ -1085,5 +1095,79 @@ mod tests {
                 .unwrap();
 
         assert_eq!(signals.len(), 2); // One signal per strategy
+    }
+
+    // =========================================================================
+    // TIMING BUG FIX TESTS
+    // =========================================================================
+
+    #[test]
+    fn test_is_crypto_market_detection() {
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+
+        // Crypto markets
+        market.event_ticker = "KXBTC".to_string();
+        assert!(market.is_crypto_market());
+        market.event_ticker = "KXBTC15M".to_string();
+        assert!(market.is_crypto_market());
+        market.event_ticker = "KXBTC-25DEC2919".to_string();
+        assert!(market.is_crypto_market());
+        market.event_ticker = "KXETH".to_string();
+        assert!(market.is_crypto_market());
+        market.event_ticker = "KXETH1H".to_string();
+        assert!(market.is_crypto_market());
+        market.event_ticker = "KXETH-110K-2025".to_string();
+        assert!(market.is_crypto_market());
+
+        // Non-crypto markets
+        market.event_ticker = "KXNBAGAME".to_string();
+        assert!(!market.is_crypto_market());
+        market.event_ticker = "KXNFLGAME".to_string();
+        assert!(!market.is_crypto_market());
+        market.event_ticker = "KXNCAAWBGAME".to_string();
+        assert!(!market.is_crypto_market());
+        market.event_ticker = "KXPOLITICS".to_string();
+        assert!(!market.is_crypto_market());
+        market.event_ticker = "TEST-EVENT".to_string();
+        assert!(!market.is_crypto_market());
+    }
+
+    #[test]
+    fn test_time_filter_uses_close_time_for_crypto() {
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+        market.event_ticker = "KXBTC15M".to_string();
+        market.close_time = Utc::now() + Duration::minutes(30); // Accurate for crypto
+        market.event_time = Utc::now() + Duration::days(14);    // Placeholder
+
+        // Should use close_time (30 minutes), not event_time (14 days)
+        assert!(StrategyEvaluator::matches_time_to_event(&market, Some(20), Some(40)));
+        assert!(!StrategyEvaluator::matches_time_to_event(&market, Some(50), Some(100)));
+    }
+
+    #[test]
+    fn test_time_filter_uses_event_time_for_sports() {
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+        market.event_ticker = "KXNBAGAME".to_string();
+        market.event_time = Utc::now() + Duration::hours(2);   // Accurate (game end)
+        market.close_time = Utc::now() + Duration::days(14);   // Placeholder
+
+        // Should use event_time (120 minutes), not close_time (14 days)
+        assert!(StrategyEvaluator::matches_time_to_event(&market, Some(100), Some(150)));
+        assert!(!StrategyEvaluator::matches_time_to_event(&market, Some(200), Some(300)));
+    }
+
+    #[test]
+    fn test_time_filter_rejects_past_events() {
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+
+        // Crypto market with close_time in the past
+        market.event_ticker = "KXBTC".to_string();
+        market.close_time = Utc::now() - Duration::minutes(10);
+        assert!(!StrategyEvaluator::matches_time_to_event(&market, None, None));
+
+        // Sports market with event_time in the past
+        market.event_ticker = "KXNFLGAME".to_string();
+        market.event_time = Utc::now() - Duration::minutes(10);
+        assert!(!StrategyEvaluator::matches_time_to_event(&market, None, None));
     }
 }

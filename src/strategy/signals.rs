@@ -159,9 +159,14 @@ impl EntrySignal {
     pub fn from_market(market: &Market, strategy: &Strategy) -> Vec<EntrySignal> {
         let sides = Self::determine_side(market, &strategy.entry_rules.side);
 
-        // Calculate time to close in minutes (not event time - see evaluator for explanation)
+        // Calculate time to close in minutes
+        // TIMING BUG FIX: Use close_time for crypto, event_time for sports (same logic as evaluator)
         let now = Utc::now();
-        let time_to_close = market.close_time.signed_duration_since(now);
+        let time_to_close = if market.is_crypto_market() {
+            market.close_time.signed_duration_since(now)
+        } else {
+            market.event_time.signed_duration_since(now)
+        };
         let time_to_event_minutes = time_to_close.num_seconds() as f64 / 60.0;
 
         sides
@@ -430,6 +435,7 @@ mod tests {
     #[test]
     fn test_signal_time_to_event_calculation() {
         let mut market = create_test_market(dec!(0.30), dec!(0.70));
+        market.event_ticker = "KXBTC15M".to_string(); // Crypto market uses close_time
         market.close_time = Utc::now() + Duration::hours(12);
         let strategy = create_test_strategy(EntrySide::CheaperSide, 100);
 

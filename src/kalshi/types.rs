@@ -510,12 +510,11 @@ mod tests {
 
     #[test]
     fn test_orderbook_response_deserialization() {
+        // Test with only yes/no fields (we ignore yes_dollars/no_dollars)
         let json = r#"{
             "orderbook": {
                 "yes": [[45, 100], [46, 75], [47, 50]],
-                "no": [[55, 100], [54, 75], [53, 50]],
-                "yes_dollars": [["0.45", 100], ["0.46", 75], ["0.47", 50]],
-                "no_dollars": [["0.55", 100], ["0.54", 75], ["0.53", 50]]
+                "no": [[55, 100], [54, 75], [53, 50]]
             }
         }"#;
 
@@ -524,6 +523,28 @@ mod tests {
         assert_eq!(orderbook.yes.len(), 3);
         assert_eq!(orderbook.yes[0], (45, 100));
         assert_eq!(orderbook.no[0], (55, 100));
+    }
+
+    #[test]
+    fn test_orderbook_with_null_dollars_fields() {
+        // Test that we handle null values in yes_dollars/no_dollars gracefully
+        let json = r#"{
+            "orderbook": {
+                "yes": [[98, 50]],
+                "no": [[3, 100]],
+                "yes_dollars": [[null, 50]],
+                "no_dollars": [["0.03", 100]]
+            }
+        }"#;
+
+        let response: OrderbookResponse = serde_json::from_str(json).unwrap();
+        let orderbook = response.orderbook.unwrap();
+        assert_eq!(orderbook.yes.len(), 1);
+        assert_eq!(orderbook.yes[0], (98, 50));
+        assert_eq!(orderbook.no[0], (3, 100));
+        // yes_dollars and no_dollars are ignored (empty vecs)
+        assert_eq!(orderbook.yes_dollars.len(), 0);
+        assert_eq!(orderbook.no_dollars.len(), 0);
     }
 
     #[test]
@@ -568,13 +589,28 @@ pub struct OrderbookData {
     #[serde(default)]
     pub no: Vec<(i64, u64)>,
 
-    /// YES side asks in dollar strings (we ignore this)
-    #[serde(default, skip_serializing)]
+    /// YES side asks in dollar strings (we ignore this - can be null or contain nulls)
+    #[serde(default, skip_serializing, deserialize_with = "deserialize_nullable_array")]
     pub yes_dollars: Vec<(String, u64)>,
 
-    /// NO side asks in dollar strings (we ignore this)
-    #[serde(default, skip_serializing)]
+    /// NO side asks in dollar strings (we ignore this - can be null or contain nulls)
+    #[serde(default, skip_serializing, deserialize_with = "deserialize_nullable_array")]
     pub no_dollars: Vec<(String, u64)>,
+}
+
+/// Deserialize arrays that might be null or contain null elements
+/// We don't actually use these fields, so just return empty vec on any error
+fn deserialize_nullable_array<'de, D>(deserializer: D) -> Result<Vec<(String, u64)>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // Deserialize as a generic Value and ignore it
+    // This handles any JSON structure (arrays, nulls, nested arrays with nulls, etc.)
+    use serde::de::IgnoredAny;
+    let _ = IgnoredAny::deserialize(deserializer)?;
+
+    // Always return empty vec - we don't use yes_dollars/no_dollars anyway
+    Ok(Vec::new())
 }
 
 /// Convert Kalshi orderbook response to domain model

@@ -294,7 +294,13 @@ pub fn evaluate_strategies(
     for strategy in state.strategies.values() {
         tracing::info!("Evaluating strategy: {} against {} markets", strategy.name, markets.len());
 
-        match crate::strategy::evaluator::StrategyEvaluator::evaluate(markets, strategy, Some(&state.price_tracker), None, None) {
+        match crate::strategy::evaluator::StrategyEvaluator::evaluate(
+            markets,
+            strategy,
+            Some(&state.price_tracker),
+            Some(&state.volume_tracker),
+            Some(&state.order_flow_tracker),
+        ) {
             Ok(strategy_signals) => {
                 tracing::info!("  Generated {} signals from {}", strategy_signals.len(), strategy.name);
                 // Attach market data to each signal

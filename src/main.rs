@@ -10,6 +10,7 @@ use calchas::loop_handlers::{
     update_and_check_positions, print_status, scan_arbitrage_opportunities,
     display_arbitrage_opportunities,
 };
+use calchas::trading::OrderbookProvider;
 use clap::Parser;
 
 /// Calchas Trading Bot - Choose your strategy mode
@@ -211,9 +212,42 @@ async fn run_strategy_mode(state: &mut AppState) -> Result<(), Box<dyn std::erro
                             // Record prices for momentum tracking
                             for market in &m {
                                 state.price_tracker.record_price(&market.id, market.yes_price, market.no_price);
+                                // Record volume for volume spike detection (Phase 1)
+                                state.volume_tracker.record_volume(&market.id, market.volume);
                             }
-                            tracing::info!("📊 Recorded prices for {} markets, tracker now tracking {} markets",
-                                m.len(), state.price_tracker.market_count());
+                            tracing::info!("📊 Recorded prices and volume for {} markets", m.len());
+                            tracing::info!("    Price tracker: {} markets, Volume tracker: {} markets",
+                                state.price_tracker.market_count(),
+                                state.volume_tracker.market_count());
+
+                            // Fetch and record orderbooks for OFI tracking (Phase 2)
+                            // Only if any strategy uses order flow imbalance filter
+                            let needs_ofi = state.strategies.values()
+                                .any(|s| s.filters.min_order_flow_imbalance.is_some());
+
+                            if needs_ofi && !m.is_empty() {
+                                tracing::debug!("Fetching orderbooks for {} markets (OFI tracking)", m.len());
+                                let mut orderbooks_fetched = 0;
+                                for market in &m {
+                                    match state.orderbook_provider.get_orderbook(&market.id).await {
+                                        Ok(Some(orderbook)) => {
+                                            state.order_flow_tracker.record_orderbook(&orderbook);
+                                            orderbooks_fetched += 1;
+                                        }
+                                        Ok(None) => {
+                                            tracing::trace!("No orderbook for {}", market.id.as_str());
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!("Failed to fetch orderbook for {}: {}", market.id.as_str(), e);
+                                        }
+                                    }
+                                }
+                                if orderbooks_fetched > 0 {
+                                    tracing::info!("    OFI tracker: {} markets (fetched {} orderbooks)",
+                                        state.order_flow_tracker.market_count(), orderbooks_fetched);
+                                }
+                            }
+
                             m
                         },
                         Err(e) => {
@@ -271,11 +305,16 @@ async fn run_strategy_mode(state: &mut AppState) -> Result<(), Box<dyn std::erro
                 // 5. Print status
                 print_status(state);
 
-                // 6. Cleanup old price data periodically (every 100 iterations = ~10 minutes)
+                // 6. Cleanup old tracker data periodically (every 100 iterations = ~10 minutes)
                 if iteration % 100 == 0 {
-                    tracing::debug!("Cleaning up old price tracker data...");
+                    tracing::debug!("Cleaning up old tracker data...");
                     state.price_tracker.cleanup_all();
-                    tracing::debug!("Price tracker now tracking {} markets", state.price_tracker.market_count());
+                    state.volume_tracker.cleanup_all();
+                    state.order_flow_tracker.cleanup_all();
+                    tracing::debug!("Price tracker: {} markets, Volume tracker: {} markets, OFI tracker: {} markets",
+                        state.price_tracker.market_count(),
+                        state.volume_tracker.market_count(),
+                        state.order_flow_tracker.market_count());
                 }
 
                 tracing::info!("");

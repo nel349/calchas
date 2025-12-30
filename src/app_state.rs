@@ -13,6 +13,7 @@ use crate::strategy::evaluator::StrategyEvaluator;
 use crate::trading::{
     OrderSimulator, RiskManager, ExitManager, OrderExecutor,
     PositionManager, MetricsTracker, PriceTracker, RealOrderbookProvider,
+    VolumeTracker, OrderFlowTracker,
 };
 use crate::arbitrage::{CrossMarketDetector, ArbitrageCalculator, calculator::ArbitrageConfig};
 use rust_decimal::Decimal;
@@ -61,6 +62,12 @@ pub struct AppState {
 
     /// Price tracker for momentum analysis
     pub price_tracker: PriceTracker,
+
+    /// Volume tracker for volume spike detection (Phase 1)
+    pub volume_tracker: VolumeTracker,
+
+    /// Order flow tracker for orderbook imbalance detection (Phase 2)
+    pub order_flow_tracker: OrderFlowTracker,
 
     /// Orderbook provider for liquidity checks (using real API data)
     pub orderbook_provider: RealOrderbookProvider,
@@ -137,6 +144,8 @@ impl AppState {
 
         let metrics_tracker = MetricsTracker::new(starting_capital);
         let price_tracker = PriceTracker::new();
+        let volume_tracker = VolumeTracker::new();
+        let order_flow_tracker = OrderFlowTracker::new();
         let orderbook_provider = RealOrderbookProvider::new(kalshi_client.clone());
 
         // Initialize arbitrage detector with configuration from TOML
@@ -174,6 +183,8 @@ impl AppState {
             position_manager,
             metrics_tracker,
             price_tracker,
+            volume_tracker,
+            order_flow_tracker,
             orderbook_provider,
             arbitrage_detector,
             arbitrage_opportunities_found: Vec::new(),

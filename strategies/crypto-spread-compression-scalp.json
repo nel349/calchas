@@ -3,7 +3,7 @@
   "name": "Crypto Spread Compression Scalper",
   "description": "Scalps 2-4% from spread compression as crypto markets approach settlement. Buys tight spreads (<2¢), sells when tighter. Conservative, high win rate.",
   "version": "1.0.0",
-  "enabled": true,
+  "enabled": false,
 
   "filters": {
     "categories": null,

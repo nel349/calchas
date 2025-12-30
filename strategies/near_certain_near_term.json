@@ -3,7 +3,7 @@
   "name": "Near-Certain Near-Term",
   "description": "Buy high-probability favorites (97-99%) within 1 hour of resolution. Small gains (2-3%), high win rate. Requires liquid markets. Math: At 98¢, win $2 (98% chance) or lose $98 (2% chance) - need 49:1 win ratio to profit long-term.",
   "version": "1.0.0",
-  "enabled": true,
+  "enabled": false,
 
   "filters": {
     "categories": null,

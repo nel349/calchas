@@ -1,7 +1,7 @@
 {
-  "id": "order-flow-imbalance",
-  "name": "Order Flow Imbalance Scalper",
-  "description": "Trades orderbook buy/sell pressure across all liquid markets. Detects institutional money flow via OFI (Order Flow Imbalance). HFT-style short-term prediction.",
+  "id": "test-phase1-phase2",
+  "name": "Test Phase 1 & 2 Integration",
+  "description": "Loose thresholds to verify volume spike and OFI detection are working",
   "version": "1.0.0",
   "enabled": true,
 
@@ -10,10 +10,10 @@
     "exclude_categories": null,
     "series_ticker": null,
 
-    "min_price": null,
-    "max_price": null,
+    "min_price": "0.05",
+    "max_price": "0.95",
 
-    "min_volume": 1000,
+    "min_volume": 100,
     "min_open_interest": null,
 
     "min_time_to_event_minutes": null,
@@ -22,36 +22,36 @@
     "min_momentum_pct": null,
     "momentum_lookback_minutes": null,
 
-    "min_volume_spike_pct": null,
-    "volume_spike_lookback_minutes": null,
+    "min_volume_spike_pct": "10.0",
+    "volume_spike_lookback_minutes": 10,
 
-    "min_order_flow_imbalance": "0.20",
+    "min_order_flow_imbalance": "0.10",
 
-    "max_spread_cents": "0.05",
-    "min_best_price_quantity": 200
+    "max_spread_cents": "0.10",
+    "min_best_price_quantity": 50
   },
 
   "entry_rules": {
     "side": "CheaperSide",
-    "position_size": 75,
+    "position_size": 50,
     "position_size_unit": "Dollars",
     "order_type": "Limit",
     "limit_price_offset": "-0.005"
   },
 
   "exit_rules": {
-    "take_profit_pct": "2.0",
-    "stop_loss_pct": "1.0",
+    "take_profit_pct": "5.0",
+    "stop_loss_pct": "2.0",
     "trailing_stop_pct": null,
     "trailing_stop_activation_pct": null,
-    "max_hold_time_minutes": 5,
+    "max_hold_time_minutes": 10,
     "exit_order_type": "Market"
   },
 
   "risk_limits": {
-    "max_concurrent_positions": 5,
+    "max_concurrent_positions": 3,
     "max_daily_loss_usd": "50.00",
     "max_position_loss_usd": "10.00",
-    "loss_cooldown_minutes": 15
+    "loss_cooldown_minutes": 5
   }
 }

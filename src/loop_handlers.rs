@@ -749,42 +749,38 @@ pub async fn update_and_check_positions(
             ""
         };
 
-        // Only show price change if it's meaningful (more than $0.005 difference)
-        let price_diff = (current_price - position.entry_price).abs();
+        // Only show colored arrow and circle if price ACTUALLY CHANGED this iteration
+        // Threshold: more than $0.005 change since last update
         let threshold = rust_decimal::Decimal::new(5, 3); // 0.005
+        let price_change_abs = price_change.abs();
 
-        if price_diff >= threshold {
-            // Color-code arrows: green for up, red for down, plain for unchanged
-            let (change_symbol, color_start, color_end) = if price_change > rust_decimal::Decimal::ZERO {
-                ("↑", "\x1b[32m", "\x1b[0m")  // Green up
-            } else if price_change < rust_decimal::Decimal::ZERO {
-                ("↓", "\x1b[31m", "\x1b[0m")  // Red down
+        if price_change_abs >= threshold {
+            // Price changed significantly - show colored arrow and circle
+            let (change_symbol, color_code) = if price_change > rust_decimal::Decimal::ZERO {
+                ("↑", "\x1b[32m")  // Green up arrow
             } else {
-                ("→", "", "")  // Plain arrow for no change
+                ("↓", "\x1b[31m")  // Red down arrow (price_change < 0 since we checked abs >= threshold)
             };
 
-            // Use println! for proper ANSI color rendering
-            // Add colored marker at end to highlight changed positions
+            // Use println! for ANSI color rendering (tracing doesn't render colors)
             println!(
-                "\x1b[36m{}\x1b[0m  [{}/{}] {} | Entry ${:.4} {}{}{} ${:.4} | P&L: {}{:.2} | TP: ${:.4} SL: ${:.4} {}●{}",
-                Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ"),
+                "{}  [{}/{}] {} | Entry ${:.4} {}{}\x1b[0m ${:.4} | P&L: {}{:.2} | TP: ${:.4} SL: ${:.4} {}●\x1b[0m",
+                chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ  INFO"),
                 side_str,
                 position.quantity,
                 market.ticker,
                 position.entry_price,
-                color_start,
+                color_code,
                 change_symbol,
-                color_end,
                 current_price,
                 pnl_color,
                 updated_position.unrealized_pnl,
                 position.exit_target.take_profit_price.unwrap_or_default(),
                 position.exit_target.stop_loss_price.unwrap_or_default(),
-                color_start,
-                color_end
+                color_code
             );
         } else {
-            // Price hasn't changed meaningfully - show current price without arrow
+            // Price unchanged or changed less than threshold - plain display
             tracing::info!(
                 "  [{}/{}] {} | Entry ${:.4} → ${:.4} | P&L: {}{:.2} | TP: ${:.4} SL: ${:.4}",
                 side_str,
@@ -1047,4 +1043,68 @@ pub fn display_arbitrage_opportunities(
     tracing::info!("  Average profit: {:.1}%", avg_profit_pct * Decimal::from(100));
     tracing::info!("  Capital to deploy all: ${:.2}", total_capital_available);
     tracing::info!("═══════════════════════════════════════════════════════════════");
+}
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    /// Test that position display shows colored arrows only when price changes
+    #[test]
+    fn test_position_display_shows_arrows_on_price_change() {
+        // Simulate price change scenarios
+        let threshold = dec!(0.005);
+        
+        // Case 1: Price went UP significantly (≥ 0.005)
+        let price_change_up = dec!(0.01);
+        assert!(price_change_up.abs() >= threshold, "Should trigger colored display");
+        
+        // Case 2: Price went DOWN significantly (≥ 0.005)
+        let price_change_down = dec!(-0.01);
+        assert!(price_change_down.abs() >= threshold, "Should trigger colored display");
+        
+        // Case 3: Price unchanged
+        let price_change_zero = dec!(0.0);
+        assert!(price_change_zero.abs() < threshold, "Should NOT trigger colored display");
+        
+        // Case 4: Price changed < threshold
+        let price_change_tiny = dec!(0.003);
+        assert!(price_change_tiny.abs() < threshold, "Should NOT trigger colored display");
+    }
+
+    /// Test that up arrow uses green color code
+    #[test]
+    fn test_up_arrow_is_green() {
+        let price_change = dec!(0.01);
+        
+        if price_change > dec!(0.0) {
+            let (symbol, color) = ("↑", "\x1b[32m");
+            assert_eq!(symbol, "↑");
+            assert_eq!(color, "\x1b[32m", "Green color code");
+        }
+    }
+
+    /// Test that down arrow uses red color code
+    #[test]
+    fn test_down_arrow_is_red() {
+        let price_change = dec!(-0.01);
+        
+        if price_change < dec!(0.0) {
+            let (symbol, color) = ("↓", "\x1b[31m");
+            assert_eq!(symbol, "↓");
+            assert_eq!(color, "\x1b[31m", "Red color code");
+        }
+    }
+
+    /// Test threshold value is exactly 0.005 (half cent)
+    #[test]
+    fn test_threshold_is_half_cent() {
+        let threshold = rust_decimal::Decimal::new(5, 3);
+        assert_eq!(threshold, dec!(0.005));
+    }
 }

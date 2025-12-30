@@ -191,7 +191,16 @@ impl Position {
     /// Check if trailing stop hit
     pub fn hit_trailing_stop(&self) -> bool {
         if let Some(trailing_distance) = self.exit_target.trailing_stop_distance {
-            let trailing_price = self.peak_pnl / Decimal::from(self.quantity) + self.entry_price - trailing_distance;
+            // peak_pnl has entry fees subtracted, so add them back to get gross peak P&L
+            let entry_fees = crate::kalshi::fees::calculate_kalshi_taker_fee(self.entry_price, self.quantity);
+            let peak_gross_pnl = self.peak_pnl + entry_fees;
+
+            // Calculate peak price from gross P&L (not net)
+            let peak_price_change = peak_gross_pnl / Decimal::from(self.quantity);
+            let peak_price = self.entry_price + peak_price_change;
+
+            // Trailing stop triggers when price drops trailing_distance from peak
+            let trailing_price = peak_price - trailing_distance;
             self.current_price <= trailing_price
         } else {
             false

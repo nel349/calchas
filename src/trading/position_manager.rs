@@ -366,16 +366,20 @@ impl PositionManager {
         exit_rules: &crate::models::strategy::ExitRules,
         entry_timestamp: DateTime<Utc>,
     ) -> ExitTarget {
-        // Calculate take profit price
+        use rust_decimal_macros::dec;
+
+        // Calculate take profit price (clamped to market maximum $0.99)
         let take_profit_price = exit_rules.take_profit_pct.map(|pct| {
             let pct_decimal = pct / Decimal::from(100);
-            entry_price + (entry_price * pct_decimal)
+            let calculated = entry_price + (entry_price * pct_decimal);
+            calculated.min(dec!(0.99))  // Prediction markets max at $0.99
         });
 
-        // Calculate stop loss price
+        // Calculate stop loss price (clamped to market minimum $0.01)
         let stop_loss_price = exit_rules.stop_loss_pct.map(|pct| {
             let pct_decimal = pct / Decimal::from(100);
-            entry_price - (entry_price * pct_decimal)
+            let calculated = entry_price - (entry_price * pct_decimal);
+            calculated.max(dec!(0.01))  // Prediction markets min at $0.01
         });
 
         // Calculate trailing stop distance

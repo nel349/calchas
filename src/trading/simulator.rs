@@ -164,30 +164,23 @@ impl OrderSimulator {
     /// # Simulation Rules:
     /// - Entry (Buy): Use ask price (we pay the ask)
     /// - Exit (Sell): Use bid price (we receive the bid)
+    ///
+    /// This simulates realistic spread costs that occur in live trading.
+    /// Kalshi API provides bid/ask in the Market struct.
     fn determine_fill_price(&self, market: &Market, order: &Order) -> Decimal {
-        // Convert Market side prices to bid/ask
-        // For Yes side: yes_price is the midpoint, we need bid/ask
-        // For No side: no_price is the midpoint, we need bid/ask
-        //
-        // Since Market only stores midpoint prices, we approximate:
-        // - Ask = midpoint (conservative for buyer)
-        // - Bid = midpoint (conservative for seller)
-        //
-        // TODO: Phase 5 could fetch actual bid/ask from Kalshi if needed
-
         match order.action {
             OrderAction::Buy => {
-                // Entry order: pay the ask (use current price as ask)
+                // Entry order: pay the ASK (higher price - worse for buyer)
                 match order.side {
-                    crate::models::OrderSide::Yes => market.yes_price,
-                    crate::models::OrderSide::No => market.no_price,
+                    crate::models::OrderSide::Yes => market.yes_ask,
+                    crate::models::OrderSide::No => market.no_ask,
                 }
             }
             OrderAction::Sell => {
-                // Exit order: receive the bid (use current price as bid)
+                // Exit order: receive the BID (lower price - worse for seller)
                 match order.side {
-                    crate::models::OrderSide::Yes => market.yes_price,
-                    crate::models::OrderSide::No => market.no_price,
+                    crate::models::OrderSide::Yes => market.yes_bid,
+                    crate::models::OrderSide::No => market.no_bid,
                 }
             }
         }
@@ -259,20 +252,20 @@ mod tests {
 
         let order = create_test_order("TEST-MARKET", OrderSide::Yes, OrderAction::Buy, 10);
 
-        // Manually test the logic without needing a real client
+        // Manually test the logic - Entry (Buy) pays the ASK
         let price = match order.action {
             OrderAction::Buy => match order.side {
-                OrderSide::Yes => market.yes_price,
-                OrderSide::No => market.no_price,
+                OrderSide::Yes => market.yes_ask,
+                OrderSide::No => market.no_ask,
             },
             OrderAction::Sell => match order.side {
-                OrderSide::Yes => market.yes_price,
-                OrderSide::No => market.no_price,
+                OrderSide::Yes => market.yes_bid,
+                OrderSide::No => market.no_bid,
             },
         };
 
-        // Entry (Buy) on Yes side should use yes_price
-        assert_eq!(price, dec!(0.60));
+        // Entry (Buy) on Yes side should use yes_ask (worse price for buyer)
+        assert_eq!(price, dec!(0.61));
     }
 
     #[test]
@@ -281,19 +274,20 @@ mod tests {
 
         let order = create_test_order("TEST-MARKET", OrderSide::No, OrderAction::Buy, 10);
 
+        // Entry (Buy) pays the ASK
         let price = match order.action {
             OrderAction::Buy => match order.side {
-                OrderSide::Yes => market.yes_price,
-                OrderSide::No => market.no_price,
+                OrderSide::Yes => market.yes_ask,
+                OrderSide::No => market.no_ask,
             },
             OrderAction::Sell => match order.side {
-                OrderSide::Yes => market.yes_price,
-                OrderSide::No => market.no_price,
+                OrderSide::Yes => market.yes_bid,
+                OrderSide::No => market.no_bid,
             },
         };
 
-        // Entry (Buy) on No side should use no_price
-        assert_eq!(price, dec!(0.40));
+        // Entry (Buy) on No side should use no_ask (worse price for buyer)
+        assert_eq!(price, dec!(0.41));
     }
 
     #[test]
@@ -302,19 +296,20 @@ mod tests {
 
         let order = create_test_order("TEST-MARKET", OrderSide::Yes, OrderAction::Sell, 10);
 
+        // Exit (Sell) receives the BID
         let price = match order.action {
             OrderAction::Buy => match order.side {
-                OrderSide::Yes => market.yes_price,
-                OrderSide::No => market.no_price,
+                OrderSide::Yes => market.yes_ask,
+                OrderSide::No => market.no_ask,
             },
             OrderAction::Sell => match order.side {
-                OrderSide::Yes => market.yes_price,
-                OrderSide::No => market.no_price,
+                OrderSide::Yes => market.yes_bid,
+                OrderSide::No => market.no_bid,
             },
         };
 
-        // Exit (Sell) should use yes_price
-        assert_eq!(price, dec!(0.60));
+        // Exit (Sell) on Yes side should use yes_bid (worse price for seller)
+        assert_eq!(price, dec!(0.59));
     }
 
     #[test]

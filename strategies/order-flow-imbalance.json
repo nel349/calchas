@@ -44,6 +44,7 @@
     "trailing_stop_pct": null,
     "trailing_stop_activation_pct": null,
     "max_hold_time_minutes": 240,
+    "settlement_aware_exit": true,
     "exit_order_type": "Market"
   },
 

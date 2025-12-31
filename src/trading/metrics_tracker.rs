@@ -175,6 +175,7 @@ pub struct ExitReasonSummary {
     pub market_closed: u32,
     pub manual_exit: u32,
     pub strategy_disabled: u32,
+    pub settlement_cut_loss: u32,
 }
 
 /// Tracks performance metrics for exit-to-live validation
@@ -252,6 +253,7 @@ impl MetricsTracker {
             ExitReason::MarketClosed => self.exit_reasons.market_closed += 1,
             ExitReason::ManualExit => self.exit_reasons.manual_exit += 1,
             ExitReason::StrategyDisabled => self.exit_reasons.strategy_disabled += 1,
+            ExitReason::SettlementCutLoss => self.exit_reasons.settlement_cut_loss += 1,
         }
     }
 

@@ -172,6 +172,51 @@ impl Market {
         let recent_volume_ratio = self.volume_24h as f64 / self.volume as f64;
         recent_volume_ratio > 0.30
     }
+
+    /// Determine if this market has a predictable settlement time.
+    ///
+    /// This is CRITICAL for settlement-aware exit logic. Settlement logic assumes
+    /// that `event_time` accurately represents when the market will settle, but this
+    /// is NOT true for all market types:
+    ///
+    /// ✅ PREDICTABLE (event_time = actual settlement):
+    /// - Crypto: Settle at exact times (e.g., 2:00 PM daily)
+    /// - Economics: Data releases at scheduled times (e.g., CPI at 8:30 AM)
+    /// - Weather: Observations at specific times (e.g., high temp at midnight)
+    ///
+    /// ❌ UNPREDICTABLE (event_time ≠ actual settlement):
+    /// - Sports: event_time = game START, not game END
+    ///   - Games end 3-4 hours after start
+    ///   - Overtime/delays make end time unpredictable
+    ///   - Settlement logic would trigger BEFORE game even ends
+    ///
+    /// Detection Logic:
+    /// - Check if `event_time` is within 2 hours of `close_time`
+    /// - If yes → settlement time is known in advance (predictable)
+    /// - If no → settlement time varies (unpredictable)
+    ///
+    /// Rationale:
+    /// - Crypto: event_time ≈ close_time (0 hour gap)
+    /// - Sports: event_time vs close_time (333 hour gap - placeholder)
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// // Crypto (predictable): event_time = Jan 2 22:05, close_time = Jan 2 22:00
+    /// // → Gap = 0 hours → PREDICTABLE
+    ///
+    /// // Sports (unpredictable): event_time = Jan 4 21:00, close_time = Jan 18 18:00
+    /// // → Gap = 333 hours → UNPREDICTABLE
+    /// ```
+    pub fn is_settlement_predictable(&self) -> bool {
+        // Calculate hours between event_time and close_time
+        let diff_seconds = (self.close_time.timestamp() - self.event_time.timestamp()).abs();
+        let diff_hours = diff_seconds / 3600;
+
+        // If event_time and close_time are within 2 hours, settlement is predictable
+        // This excludes sports (333h gap) but includes crypto/economics (0-2h gap)
+        diff_hours <= 2
+    }
 }
 
 // =============================================================================
@@ -482,5 +527,81 @@ mod tests {
         let market = create_test_market();
         assert!(market.is_category(&MarketCategory::Weather));
         assert!(!market.is_category(&MarketCategory::Sports));
+    }
+
+    #[test]
+    fn test_is_settlement_predictable_crypto() {
+        use chrono::Duration;
+
+        // Crypto market: event_time ≈ close_time (0 hour gap)
+        let mut market = create_test_market();
+        market.event_ticker = "KXBTC15M".to_string();
+        market.event_time = Utc::now() + Duration::hours(1);
+        market.close_time = Utc::now() + Duration::hours(1);  // Same time (0 hour gap)
+
+        assert!(market.is_settlement_predictable(), "Crypto should be predictable (0h gap)");
+    }
+
+    #[test]
+    fn test_is_settlement_predictable_economics() {
+        use chrono::Duration;
+
+        // Economics market: event_time ≈ close_time (1 hour gap - within threshold)
+        let mut market = create_test_market();
+        market.category = MarketCategory::Economics;
+        market.event_time = Utc::now() + Duration::hours(2);
+        market.close_time = Utc::now() + Duration::hours(3);  // 1 hour gap
+
+        assert!(market.is_settlement_predictable(), "Economics should be predictable (1h gap)");
+    }
+
+    #[test]
+    fn test_is_settlement_predictable_boundary() {
+        use chrono::Duration;
+
+        // Exactly 2 hours gap (boundary - should be predictable)
+        let mut market = create_test_market();
+        market.event_time = Utc::now() + Duration::hours(1);
+        market.close_time = Utc::now() + Duration::hours(3);  // Exactly 2 hours gap
+
+        assert!(market.is_settlement_predictable(), "2h gap should be predictable (boundary)");
+    }
+
+    #[test]
+    fn test_is_settlement_unpredictable_sports() {
+        use chrono::Duration;
+
+        // Sports market: event_time (game start) vs close_time (333h gap - placeholder)
+        let mut market = create_test_market();
+        market.category = MarketCategory::Sports;
+        market.event_ticker = "KXNFLGAME-25DEC30".to_string();
+        market.event_time = Utc::now() + Duration::hours(5);
+        market.close_time = Utc::now() + Duration::hours(333);  // Placeholder close time
+
+        assert!(!market.is_settlement_predictable(), "Sports should be unpredictable (333h gap)");
+    }
+
+    #[test]
+    fn test_is_settlement_unpredictable_large_gap() {
+        use chrono::Duration;
+
+        // Any market with >2 hour gap should be unpredictable
+        let mut market = create_test_market();
+        market.event_time = Utc::now() + Duration::hours(1);
+        market.close_time = Utc::now() + Duration::hours(4);  // 3 hour gap (exceeds threshold)
+
+        assert!(!market.is_settlement_predictable(), "3h gap should be unpredictable");
+    }
+
+    #[test]
+    fn test_is_settlement_predictable_negative_gap() {
+        use chrono::Duration;
+
+        // close_time before event_time (abs() should handle this)
+        let mut market = create_test_market();
+        market.close_time = Utc::now() + Duration::hours(1);
+        market.event_time = Utc::now() + Duration::hours(2);  // 1 hour gap (reversed)
+
+        assert!(market.is_settlement_predictable(), "Should handle negative gap (1h reversed)");
     }
 }

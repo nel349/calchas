@@ -867,7 +867,36 @@ pub async fn update_and_check_positions(
             pm_position.update_price(updated_position.current_price);
         }
 
-        // Check if exit condition met
+        // Check settlement-aware exit logic FIRST (highest priority - time-sensitive)
+        // Only if enabled in strategy configuration AND market has predictable settlement
+        if let Some(strategy) = state.strategies.get(&position.strategy_id) {
+            let settlement_enabled = strategy.exit_rules.settlement_aware_exit.unwrap_or(false);
+
+            if settlement_enabled
+                && market.is_open()  // Only Active markets are tradeable (skip Determined/Finalized)
+                && market.is_settlement_predictable()  // Only apply to predictable markets (crypto, economics)
+                && state.exit_manager.check_settlement_logic(&updated_position, market, current_price) {
+                tracing::info!(
+                    "✓ SETTLEMENT EXIT TRIGGERED: {} (Losing position near settlement, P&L: ${:.2})",
+                    position_id.0,
+                    updated_position.unrealized_pnl
+                );
+
+                // Execute settlement-aware exit
+                match execute_exit(state, &position_id, ExitReason::SettlementCutLoss).await {
+                    Ok(()) => {
+                        // Position closed successfully
+                        state.positions.remove(&position_id);
+                        continue; // Skip standard exit checks - already exited
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to execute settlement exit for {}: {}", position_id.0, e);
+                    }
+                }
+            }
+        }
+
+        // Check standard exit conditions (TP, SL, trailing stop, max hold time)
         if state.exit_manager.should_exit(&updated_position) {
             if let Some(exit_reason) = state.exit_manager.determine_exit_reason(&updated_position) {
                 tracing::info!(

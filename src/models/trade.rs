@@ -53,6 +53,7 @@ pub enum ExitReason {
     ManualExit,        // User manually closed
     StrategyDisabled,  // Strategy was turned off
     MarketClosed,      // Market settled/closed
+    SettlementCutLoss, // Cut losing position near settlement (smart exit)
 }
 
 // =============================================================================

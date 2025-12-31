@@ -351,6 +351,7 @@ fn test_momentum_filter_integration() {
             trailing_stop_pct: None,
             trailing_stop_activation_pct: None,
             max_hold_time_minutes: None,
+            settlement_aware_exit: None,
             exit_order_type: OrderType::Market,
         },
         risk_limits: RiskLimits {
@@ -1063,6 +1064,7 @@ fn test_all_three_trackers_in_evaluate() {
             trailing_stop_pct: None,
             trailing_stop_activation_pct: None,
             max_hold_time_minutes: Some(120),
+            settlement_aware_exit: None,
             exit_order_type: calchas::models::strategy::OrderType::Market,
         },
         risk_limits: calchas::models::RiskLimits {
@@ -1174,6 +1176,7 @@ fn test_all_trackers_with_one_failing() {
             trailing_stop_pct: None,
             trailing_stop_activation_pct: None,
             max_hold_time_minutes: Some(120),
+            settlement_aware_exit: None,
             exit_order_type: calchas::models::strategy::OrderType::Market,
         },
         risk_limits: calchas::models::RiskLimits {

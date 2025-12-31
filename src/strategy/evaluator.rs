@@ -842,6 +842,7 @@ mod tests {
                 trailing_stop_pct: None,
                 trailing_stop_activation_pct: None,
                 max_hold_time_minutes: Some(1440),
+                settlement_aware_exit: None,
                 exit_order_type: crate::models::strategy::OrderType::Market,
             },
             risk_limits: RiskLimits {

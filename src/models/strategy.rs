@@ -173,6 +173,14 @@ pub struct ExitRules {
     // Maximum hold time (minutes)
     pub max_hold_time_minutes: Option<u32>,
 
+    // Settlement-aware exit (cut losers near settlement, hold winners to 100%)
+    /// Enable settlement-aware exit logic:
+    /// - Within 30 minutes of event_time: Exit LOSING positions, hold WINNING positions
+    /// - Rationale: If losing near settlement, you're wrong - cut losses now
+    /// - If winning near settlement, hold for full profit to 100%
+    /// Default: false (backward compatible)
+    pub settlement_aware_exit: Option<bool>,
+
     // Exit order type
     pub exit_order_type: OrderType,
 }
@@ -308,6 +316,7 @@ mod tests {
                 trailing_stop_pct: None,
                 trailing_stop_activation_pct: None,
                 max_hold_time_minutes: Some(1440),
+                settlement_aware_exit: None,
                 exit_order_type: OrderType::Market,
             },
             risk_limits: RiskLimits {

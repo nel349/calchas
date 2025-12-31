@@ -28,6 +28,7 @@ fn create_market_with_status(status: MarketStatus, ticker: &str) -> Market {
         no_bid: dec!(0.49),
         no_ask: dec!(0.51),
         volume: 10000,
+        volume_24h: 0,
         open_interest: 5000,
         event_time: Utc::now() + Duration::hours(2),
         close_time: Utc::now() + Duration::hours(2),

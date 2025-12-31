@@ -114,6 +114,11 @@ pub struct StrategyFilters {
     ///   - 1.0 = 100/0 split (extreme imbalance)
     pub min_order_flow_imbalance: Option<Decimal>,
 
+    /// Enable LIVE game prioritization (evaluate LIVE markets first)
+    /// LIVE = expiring <2h, >30% recent volume ratio, >1000 total volume
+    /// Default: false (backward compatible)
+    pub prioritize_live_games: Option<bool>,
+
     // Orderbook filters (checked before entry execution)
     /// Maximum spread (in cents) to accept
     /// Example: 0.05 = reject if spread > 5 cents
@@ -167,6 +172,14 @@ pub struct ExitRules {
 
     // Maximum hold time (minutes)
     pub max_hold_time_minutes: Option<u32>,
+
+    // Settlement-aware exit (cut losers near settlement, hold winners to 100%)
+    /// Enable settlement-aware exit logic:
+    /// - Within 30 minutes of event_time: Exit LOSING positions, hold WINNING positions
+    /// - Rationale: If losing near settlement, you're wrong - cut losses now
+    /// - If winning near settlement, hold for full profit to 100%
+    /// Default: false (backward compatible)
+    pub settlement_aware_exit: Option<bool>,
 
     // Exit order type
     pub exit_order_type: OrderType,
@@ -286,6 +299,7 @@ mod tests {
                 min_volume_spike_pct: None,
                 volume_spike_lookback_minutes: None,
                 min_order_flow_imbalance: None,
+                prioritize_live_games: None,
                 max_spread_cents: None,
                 min_best_price_quantity: None,
             },
@@ -302,6 +316,7 @@ mod tests {
                 trailing_stop_pct: None,
                 trailing_stop_activation_pct: None,
                 max_hold_time_minutes: Some(1440),
+                settlement_aware_exit: None,
                 exit_order_type: OrderType::Market,
             },
             risk_limits: RiskLimits {

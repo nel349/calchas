@@ -77,6 +77,13 @@
       "1.0": "Extreme imbalance (100/0 split - one-sided)"
     },
 
+    "prioritize_live_games": false,
+    "_prioritize_live_note": "Enable LIVE game prioritization. If true, markets expiring <2h with >30% recent volume are evaluated FIRST.",
+    "_prioritize_criteria": "LIVE = time_to_event < 2h AND volume_24h/volume > 0.30 AND volume > 1000",
+    "_prioritize_example": "NBA game in 4th quarter (ending in 1h) = LIVE, game starting in 3 hours = non-LIVE",
+    "_prioritize_rationale": "Sports games last 2-3h. If ending in <2h, game is actively being played.",
+    "_prioritize_default": "false (backward compatible - no sorting)",
+
     "max_spread_cents": "0.05",
     "_spread_note": "Maximum bid-ask spread in cents. Example: 0.05 = reject if spread > 5¢. Ensures tight orderbook.",
 
@@ -141,6 +148,13 @@
     "max_hold_time_minutes": 1440,
     "_max_hold_note": "Maximum time to hold position (minutes). Force exit after this time regardless of P&L. Example: 1440 = force exit after 24 hours.",
 
+    "settlement_aware_exit": false,
+    "_settlement_note": "Enable settlement-aware exits: Exit LOSING positions in final 30 min before settlement, HOLD winning positions to 100%.",
+    "_settlement_criteria": "Only applies to markets with predictable settlement times (crypto, economics). Sports markets automatically excluded (settlement time unpredictable).",
+    "_settlement_example": "Crypto market settling in 15 min. If losing (price < entry), exit now. If winning (price > entry), hold for full profit.",
+    "_settlement_rationale": "Cut losers early when you're wrong, maximize winners when you're right. Conservative: exits at break-even (treats as losing).",
+    "_settlement_default": "false (backward compatible)",
+
     "exit_order_type": "Market",
     "_exit_order_note": "Market = immediate exit (pays taker fee), Limit = wait for price (pays maker fee). Usually Market for exits (guarantee execution)."
   },
@@ -162,11 +176,11 @@
   },
 
   "_comment_footer": "=================================================================",
-  "_field_count": "TOTAL FIELDS: 38 (6 metadata + 15 filters + 5 entry + 8 exit + 4 risk)",
+  "_field_count": "TOTAL FIELDS: 39 (6 metadata + 15 filters + 5 entry + 9 exit + 4 risk)",
   "_required_fields": "id, name, description, version, enabled, filters, entry_rules, exit_rules, risk_limits",
   "_all_other_fields": "Optional - set to null if not needed",
   "_validation": "Validated against src/models/strategy.rs - Complete as of Dec 2025",
-  "_new_fields_added": "min_volume_spike_pct, volume_spike_lookback_minutes, min_order_flow_imbalance (critical for Phase 1 & 2 strategies)",
+  "_new_fields_added": "min_volume_spike_pct, volume_spike_lookback_minutes, min_order_flow_imbalance, settlement_aware_exit (Phase 1 & 2 strategies)",
   "_usage": "Copy this file, rename it, remove _comment fields, set unused fields to null",
   "_comment": "================================================================="
 }

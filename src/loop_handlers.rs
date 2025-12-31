@@ -7,7 +7,6 @@ use crate::kalshi::{KalshiClient, GetMarketsRequest};
 use crate::models::{Market, ExitReason};
 use crate::strategy::signals::{EntrySignal, SignalSide};
 use crate::trading::{RiskDecision, TradingError, OrderbookProvider};
-use chrono::Utc;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::sync::Arc;
@@ -78,8 +77,8 @@ pub async fn fetch_all_markets(
 async fn fetch_series_markets(
     kalshi_client: &Arc<KalshiClient>,
     series_ticker: &str,
-    min_close_ts: i64,
-    max_close_ts: i64,
+    _min_close_ts: i64,  // Unused - kept for API compatibility
+    _max_close_ts: i64,  // Unused - kept for API compatibility
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     let mut all_markets = Vec::new();
     let mut cursor: Option<String> = None;
@@ -92,8 +91,11 @@ async fn fetch_series_markets(
             cursor: cursor.clone(),
             status: Some("open".to_string()),
             series_ticker: if series_ticker.is_empty() { None } else { Some(series_ticker.to_string()) },
-            min_close_ts: Some(min_close_ts),
-            max_close_ts: Some(max_close_ts),
+            // CRITICAL FIX: Remove time filters to catch LIVE sports games
+            // College football/basketball have placeholder close_time in 2026,
+            // but actual expiration tonight. Time filtering happens in strategy filters.
+            min_close_ts: None,
+            max_close_ts: None,
         };
 
         let response = kalshi_client.get_markets(request).await?;
@@ -187,9 +189,9 @@ pub async fn fetch_markets_by_ids(
         let total_in_batch = response.markets.len();
         tracing::debug!("    Page {}: API returned {} markets", page_count + 1, total_in_batch);
 
-        // If API returns 0 markets, stop early
+        // If API returns 0 markets, stop early (expected for some series/status combos)
         if total_in_batch == 0 {
-            tracing::warn!("    API returned 0 markets - time window might be wrong!");
+            tracing::debug!("    API returned 0 markets for series {} (status: {})", series, status_filter);
             break;
         }
 
@@ -294,23 +296,85 @@ pub fn evaluate_strategies(
     for strategy in state.strategies.values() {
         tracing::info!("Evaluating strategy: {} against {} markets", strategy.name, markets.len());
 
-        match crate::strategy::evaluator::StrategyEvaluator::evaluate(
-            markets,
-            strategy,
-            Some(&state.price_tracker),
-            Some(&state.volume_tracker),
-            Some(&state.order_flow_tracker),
-        ) {
-            Ok(strategy_signals) => {
-                tracing::info!("  Generated {} signals from {}", strategy_signals.len(), strategy.name);
-                // Attach market data to each signal
-                for signal in strategy_signals {
-                    if let Some(market) = market_map.get(&signal.market_id) {
-                        signal_market_pairs.push((signal, market.clone()));
+        // Check if LIVE game prioritization is enabled
+        let prioritize_live = strategy.filters.prioritize_live_games.unwrap_or(false);
+
+        if prioritize_live {
+            // 2-tier evaluation: LIVE games first, then non-LIVE
+            let (live_markets, non_live_markets): (Vec<_>, Vec<_>) =
+                markets.iter().cloned().partition(|m| m.is_live_game());
+
+            tracing::info!(
+                "  Prioritizing {} LIVE games, {} non-LIVE markets",
+                live_markets.len(),
+                non_live_markets.len()
+            );
+
+            // Evaluate LIVE markets first
+            if !live_markets.is_empty() {
+                match crate::strategy::evaluator::StrategyEvaluator::evaluate(
+                    &live_markets,
+                    strategy,
+                    Some(&state.price_tracker),
+                    Some(&state.volume_tracker),
+                    Some(&state.order_flow_tracker),
+                ) {
+                    Ok(live_signals) => {
+                        tracing::info!("  Generated {} signals from LIVE games", live_signals.len());
+
+                        // Attach market data to live signals
+                        for signal in live_signals {
+                            if let Some(market) = market_map.get(&signal.market_id) {
+                                signal_market_pairs.push((signal, market.clone()));
+                            }
+                        }
                     }
+                    Err(e) => tracing::warn!("Failed to evaluate LIVE markets for strategy {}: {:?}", strategy.id.0, e),
                 }
             }
-            Err(e) => tracing::warn!("Failed to evaluate strategy {}: {:?}", strategy.id.0, e),
+
+            // Evaluate non-LIVE markets (risk manager will handle position limits)
+            if !non_live_markets.is_empty() {
+                match crate::strategy::evaluator::StrategyEvaluator::evaluate(
+                    &non_live_markets,
+                    strategy,
+                    Some(&state.price_tracker),
+                    Some(&state.volume_tracker),
+                    Some(&state.order_flow_tracker),
+                ) {
+                    Ok(non_live_signals) => {
+                        tracing::info!("  Generated {} signals from non-LIVE markets", non_live_signals.len());
+
+                        // Attach market data to non-live signals
+                        for signal in non_live_signals {
+                            if let Some(market) = market_map.get(&signal.market_id) {
+                                signal_market_pairs.push((signal, market.clone()));
+                            }
+                        }
+                    }
+                    Err(e) => tracing::warn!("Failed to evaluate non-LIVE markets for strategy {}: {:?}", strategy.id.0, e),
+                }
+            }
+        } else {
+            // No prioritization - evaluate all markets together (backward compatible)
+            match crate::strategy::evaluator::StrategyEvaluator::evaluate(
+                markets,
+                strategy,
+                Some(&state.price_tracker),
+                Some(&state.volume_tracker),
+                Some(&state.order_flow_tracker),
+            ) {
+                Ok(strategy_signals) => {
+                    tracing::info!("  Generated {} signals from {}", strategy_signals.len(), strategy.name);
+                    // Attach market data to each signal
+                    for signal in strategy_signals {
+                        if let Some(market) = market_map.get(&signal.market_id) {
+                            signal_market_pairs.push((signal, market.clone()));
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!("Failed to evaluate strategy {}: {:?}", strategy.id.0, e),
+            }
         }
     }
 
@@ -723,12 +787,12 @@ pub async fn update_and_check_positions(
         );
 
         // DEBUG: Log ACTUAL exit target values to diagnose SL calculation bug
-        tracing::warn!(
-            "  EXIT TARGET DEBUG: Entry={:.6} | TP={:.6} | SL={:.6}",
-            position.entry_price,
-            position.exit_target.take_profit_price.unwrap_or_default(),
-            position.exit_target.stop_loss_price.unwrap_or_default()
-        );
+        // tracing::warn!(
+        //     "  EXIT TARGET DEBUG: Entry={:.6} | TP={:.6} | SL={:.6}",
+        //     position.entry_price,
+        //     position.exit_target.take_profit_price.unwrap_or_default(),
+        //     position.exit_target.stop_loss_price.unwrap_or_default()
+        // );
 
         // Update position with current price
         let updated_position = {
@@ -803,7 +867,36 @@ pub async fn update_and_check_positions(
             pm_position.update_price(updated_position.current_price);
         }
 
-        // Check if exit condition met
+        // Check settlement-aware exit logic FIRST (highest priority - time-sensitive)
+        // Only if enabled in strategy configuration AND market has predictable settlement
+        if let Some(strategy) = state.strategies.get(&position.strategy_id) {
+            let settlement_enabled = strategy.exit_rules.settlement_aware_exit.unwrap_or(false);
+
+            if settlement_enabled
+                && market.is_open()  // Only Active markets are tradeable (skip Determined/Finalized)
+                && market.is_settlement_predictable()  // Only apply to predictable markets (crypto, economics)
+                && state.exit_manager.check_settlement_logic(&updated_position, market, current_price) {
+                tracing::info!(
+                    "✓ SETTLEMENT EXIT TRIGGERED: {} (Losing position near settlement, P&L: ${:.2})",
+                    position_id.0,
+                    updated_position.unrealized_pnl
+                );
+
+                // Execute settlement-aware exit
+                match execute_exit(state, &position_id, ExitReason::SettlementCutLoss).await {
+                    Ok(()) => {
+                        // Position closed successfully
+                        state.positions.remove(&position_id);
+                        continue; // Skip standard exit checks - already exited
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to execute settlement exit for {}: {}", position_id.0, e);
+                    }
+                }
+            }
+        }
+
+        // Check standard exit conditions (TP, SL, trailing stop, max hold time)
         if state.exit_manager.should_exit(&updated_position) {
             if let Some(exit_reason) = state.exit_manager.determine_exit_reason(&updated_position) {
                 tracing::info!(
@@ -949,15 +1042,34 @@ pub fn print_status(state: &AppState) {
         .map(|p| p.unrealized_pnl)
         .sum();
 
+    // Calculate net profit (realized + unrealized)
+    let net_profit = metrics.net_pnl + total_unrealized_pnl;
+
     tracing::info!("");
     tracing::info!("═══════════════════════════════════════════════════════════════");
-    tracing::info!("  Positions: {} open | Unrealized P&L: ${:.2} | Trades: {} | Win Rate: {:.1}% | Realized P&L: ${:.2}",
+    tracing::info!("  Positions: {} open | Unrealized: ${:.2} | Realized: ${:.2} | Net Profit: ${:.2}",
         active_positions,
         total_unrealized_pnl,
-        metrics.total_trades,
-        metrics.win_rate,
-        metrics.net_pnl
+        metrics.net_pnl,
+        net_profit
     );
+    tracing::info!("  Trades: {} | Wins: {} | Losses: {} | Win Rate: {:.1}%",
+        metrics.total_trades,
+        metrics.total_wins,
+        metrics.total_losses,
+        metrics.win_rate
+    );
+
+    // Show exit reason breakdown if we have trades
+    if metrics.total_trades > 0 {
+        let exits = state.metrics_tracker.get_exit_reason_summary();
+        tracing::info!("  Exits: TP:{} Settled:{} SL:{} MaxHold:{}",
+            exits.take_profit,
+            exits.market_closed,
+            exits.stop_loss,
+            exits.max_hold
+        );
+    }
 
     // Show arbitrage opportunities count if in arbitrage mode
     if !state.arbitrage_opportunities_found.is_empty() {

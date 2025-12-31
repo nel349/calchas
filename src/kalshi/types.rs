@@ -207,6 +207,7 @@ impl From<KalshiMarket> for crate::models::Market {
             no_ask,
             // Convert negative sentinel values to 0
             volume: km.volume.max(0) as u64,
+            volume_24h: km.volume_24h.max(0) as u64,  // Handle sentinel -1 → 0
             open_interest: km.open_interest.max(0) as u64,
             // Use expected_expiration_time if available (actual game time), otherwise fallback to expiration_time
             event_time: km.expected_expiration_time.unwrap_or(km.expiration_time),

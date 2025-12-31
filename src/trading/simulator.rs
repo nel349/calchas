@@ -237,6 +237,7 @@ mod tests {
             no_bid: dec!(0.39),
             no_ask: dec!(0.41),
             volume: 1000,
+            volume_24h: 0,
             open_interest: 500,
             event_time: Utc::now(),
             close_time: Utc::now(),

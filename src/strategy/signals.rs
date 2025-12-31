@@ -281,6 +281,7 @@ mod tests {
             no_bid: no_price - dec!(0.01),
             no_ask: no_price + dec!(0.01),
             volume: 1000,
+            volume_24h: 0,
             open_interest: 500,
             event_time: Utc::now() + Duration::hours(24),
             close_time: Utc::now() + Duration::hours(23),
@@ -311,6 +312,7 @@ mod tests {
                 min_volume_spike_pct: None,
                 volume_spike_lookback_minutes: None,
                 min_order_flow_imbalance: None,
+                prioritize_live_games: None,
                 max_spread_cents: None,
                 min_best_price_quantity: None,
             },
@@ -327,6 +329,7 @@ mod tests {
                 trailing_stop_pct: None,
                 trailing_stop_activation_pct: None,
                 max_hold_time_minutes: Some(1440),
+                settlement_aware_exit: None,
                 exit_order_type: StrategyOrderType::Market,
             },
             risk_limits: RiskLimits {

@@ -494,6 +494,7 @@ mod tests {
                 min_volume_spike_pct: None,
                 volume_spike_lookback_minutes: None,
                 min_order_flow_imbalance: None,
+                prioritize_live_games: None,
                 max_spread_cents: None,
                 min_best_price_quantity: None,
             },
@@ -510,6 +511,7 @@ mod tests {
                 trailing_stop_pct: Some(dec!(20.0)), // 20%
                 trailing_stop_activation_pct: None,
                 max_hold_time_minutes: Some(1440),   // 24 hours
+                settlement_aware_exit: None,
                 exit_order_type: OrderType::Market,
             },
             risk_limits: RiskLimits {

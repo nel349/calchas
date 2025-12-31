@@ -26,7 +26,9 @@
 //! # }
 //! ```
 
-use crate::models::{ExitReason, Position};
+use crate::models::{ExitReason, Position, Market, PositionSide};
+use rust_decimal::Decimal;
+use chrono::Utc;
 
 // =============================================================================
 // EXIT MANAGER
@@ -91,6 +93,75 @@ impl ExitManager {
         } else {
             None
         }
+    }
+
+    /// Check if position should be exited based on settlement timing (smart exit)
+    ///
+    /// **Settlement-Aware Logic:**
+    /// - Within 30 minutes of settlement: Exit LOSING positions, hold WINNING positions
+    /// - Rationale: If you're losing near settlement, you're wrong - cut it now
+    /// - If you're winning near settlement, hold to 100% (free money)
+    ///
+    /// **Why this works:**
+    /// - Sports games resolve at known times (event_time)
+    /// - Within 30 min of settlement, outcome is usually clear
+    /// - Losing positions won't recover - exit to save pennies
+    /// - Winning positions will hit 100% at settlement - hold for full profit
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - Position to evaluate
+    /// * `market` - Market data (needed for event_time)
+    /// * `current_price` - Current market price for the position's side
+    ///
+    /// # Returns
+    ///
+    /// `true` if should exit (losing position near settlement), `false` otherwise
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use calchas::trading::ExitManager;
+    /// # use calchas::models::{Position, Market};
+    /// # use rust_decimal_macros::dec;
+    /// # fn example(position: &Position, market: &Market) {
+    /// let exit_mgr = ExitManager::new();
+    /// let current_price = dec!(0.15);  // Price dropped from 0.75 entry
+    ///
+    /// // Within 30 min of settlement, losing position → exit
+    /// if exit_mgr.check_settlement_logic(position, market, current_price) {
+    ///     println!("Cut losing position before settlement");
+    /// }
+    /// # }
+    /// ```
+    pub fn check_settlement_logic(
+        &self,
+        position: &Position,
+        market: &Market,
+        current_price: Decimal,
+    ) -> bool {
+        let now = Utc::now();
+
+        // Calculate time to settlement
+        let time_to_settlement = market.event_time.signed_duration_since(now);
+        let minutes_to_settlement = time_to_settlement.num_minutes();
+
+        // Only apply logic within 30 minutes of settlement
+        // Window: 0 < minutes < 30 (1-29 minutes inclusive)
+        // (and not after settlement has passed)
+        if minutes_to_settlement <= 0 || minutes_to_settlement >= 30 {
+            return false;
+        }
+
+        // Determine if position is winning or losing
+        let is_winning = match position.side {
+            PositionSide::Yes => current_price > position.entry_price,
+            PositionSide::No => current_price > position.entry_price,
+        };
+
+        // Exit if LOSING near settlement (you're wrong, cut it)
+        // Hold if WINNING near settlement (ride to 100%)
+        !is_winning
     }
 }
 
@@ -413,5 +484,257 @@ mod tests {
             exit_mgr.determine_exit_reason(&position),
             Some(ExitReason::StopLoss)
         );
+    }
+
+    // =============================================================================
+    // SETTLEMENT LOGIC TESTS
+    // =============================================================================
+
+    // Helper: Create test market with specific settlement time
+    fn create_test_market(minutes_to_settlement: i64) -> Market {
+        use crate::models::{MarketStatus, MarketCategory};
+
+        Market {
+            id: MarketId::new("TEST-MARKET".to_string()),
+            ticker: "TEST-001".to_string(),
+            title: "Test Market".to_string(),
+            event_ticker: "TEST-EVENT".to_string(),
+            category: MarketCategory::Sports,
+            sub_category: None,
+            status: MarketStatus::Active,
+            yes_price: dec!(0.50),
+            yes_bid: dec!(0.49),
+            yes_ask: dec!(0.51),
+            no_price: dec!(0.50),
+            no_bid: dec!(0.49),
+            no_ask: dec!(0.51),
+            volume: 10000,
+            volume_24h: 5000,
+            open_interest: 5000,
+            event_time: Utc::now() + Duration::minutes(minutes_to_settlement),
+            close_time: Utc::now() + Duration::days(1), // Placeholder
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_settlement_logic_losing_yes_position_within_30_min() {
+        // YES position losing (current price < entry price)
+        let mut position = create_test_position(ExitTarget {
+            take_profit_price: Some(dec!(0.75)),
+            stop_loss_price: Some(dec!(0.25)),
+            trailing_stop_distance: None,
+            expiry_time: None,
+        });
+        position.side = PositionSide::Yes;
+        position.entry_price = dec!(0.75); // Entered at 75 cents
+        position.current_price = dec!(0.15); // Now at 15 cents (LOSING)
+
+        let market = create_test_market(15); // 15 minutes to settlement
+        let current_price = dec!(0.15);
+
+        let exit_mgr = ExitManager::new();
+
+        // Should exit losing position near settlement
+        assert!(exit_mgr.check_settlement_logic(&position, &market, current_price));
+    }
+
+    #[test]
+    fn test_settlement_logic_winning_yes_position_within_30_min() {
+        // YES position winning (current price > entry price)
+        let mut position = create_test_position(ExitTarget {
+            take_profit_price: Some(dec!(0.75)),
+            stop_loss_price: Some(dec!(0.25)),
+            trailing_stop_distance: None,
+            expiry_time: None,
+        });
+        position.side = PositionSide::Yes;
+        position.entry_price = dec!(0.25); // Entered at 25 cents
+        position.current_price = dec!(0.85); // Now at 85 cents (WINNING)
+
+        let market = create_test_market(15); // 15 minutes to settlement
+        let current_price = dec!(0.85);
+
+        let exit_mgr = ExitManager::new();
+
+        // Should NOT exit winning position (hold to 100%)
+        assert!(!exit_mgr.check_settlement_logic(&position, &market, current_price));
+    }
+
+    #[test]
+    fn test_settlement_logic_losing_no_position_within_30_min() {
+        // NO position losing (current price < entry price)
+        let mut position = create_test_position(ExitTarget {
+            take_profit_price: Some(dec!(0.75)),
+            stop_loss_price: Some(dec!(0.25)),
+            trailing_stop_distance: None,
+            expiry_time: None,
+        });
+        position.side = PositionSide::No;
+        position.entry_price = dec!(0.75); // Entered at 75 cents
+        position.current_price = dec!(0.15); // Now at 15 cents (LOSING)
+
+        let market = create_test_market(20); // 20 minutes to settlement
+        let current_price = dec!(0.15);
+
+        let exit_mgr = ExitManager::new();
+
+        // Should exit losing position near settlement
+        assert!(exit_mgr.check_settlement_logic(&position, &market, current_price));
+    }
+
+    #[test]
+    fn test_settlement_logic_winning_no_position_within_30_min() {
+        // NO position winning (current price > entry price)
+        let mut position = create_test_position(ExitTarget {
+            take_profit_price: Some(dec!(0.75)),
+            stop_loss_price: Some(dec!(0.25)),
+            trailing_stop_distance: None,
+            expiry_time: None,
+        });
+        position.side = PositionSide::No;
+        position.entry_price = dec!(0.25); // Entered at 25 cents
+        position.current_price = dec!(0.85); // Now at 85 cents (WINNING)
+
+        let market = create_test_market(10); // 10 minutes to settlement
+        let current_price = dec!(0.85);
+
+        let exit_mgr = ExitManager::new();
+
+        // Should NOT exit winning position (hold to 100%)
+        assert!(!exit_mgr.check_settlement_logic(&position, &market, current_price));
+    }
+
+    #[test]
+    fn test_settlement_logic_too_far_from_settlement() {
+        // Position losing but more than 30 minutes to settlement
+        let mut position = create_test_position(ExitTarget {
+            take_profit_price: Some(dec!(0.75)),
+            stop_loss_price: Some(dec!(0.25)),
+            trailing_stop_distance: None,
+            expiry_time: None,
+        });
+        position.side = PositionSide::Yes;
+        position.entry_price = dec!(0.75);
+        position.current_price = dec!(0.15); // LOSING
+
+        let market = create_test_market(60); // 60 minutes to settlement (too far)
+        let current_price = dec!(0.15);
+
+        let exit_mgr = ExitManager::new();
+
+        // Should NOT apply settlement logic (too far from settlement)
+        assert!(!exit_mgr.check_settlement_logic(&position, &market, current_price));
+    }
+
+    #[test]
+    fn test_settlement_logic_past_settlement() {
+        // Settlement already passed
+        let mut position = create_test_position(ExitTarget {
+            take_profit_price: Some(dec!(0.75)),
+            stop_loss_price: Some(dec!(0.25)),
+            trailing_stop_distance: None,
+            expiry_time: None,
+        });
+        position.side = PositionSide::Yes;
+        position.entry_price = dec!(0.75);
+        position.current_price = dec!(0.15); // LOSING
+
+        let market = create_test_market(-5); // Settlement was 5 minutes ago
+        let current_price = dec!(0.15);
+
+        let exit_mgr = ExitManager::new();
+
+        // Should NOT apply settlement logic (already settled)
+        assert!(!exit_mgr.check_settlement_logic(&position, &market, current_price));
+    }
+
+    #[test]
+    fn test_settlement_logic_outside_window_31_minutes() {
+        // 31 minutes to settlement (outside window - should NOT apply)
+        let mut position = create_test_position(ExitTarget {
+            take_profit_price: Some(dec!(0.75)),
+            stop_loss_price: Some(dec!(0.25)),
+            trailing_stop_distance: None,
+            expiry_time: None,
+        });
+        position.side = PositionSide::Yes;
+        position.entry_price = dec!(0.75);
+        position.current_price = dec!(0.15); // LOSING
+
+        let market = create_test_market(31); // 31 minutes (outside window)
+        let current_price = dec!(0.15);
+
+        let exit_mgr = ExitManager::new();
+
+        // Should NOT apply (logic is: minutes >= 30, so 31 is excluded)
+        assert!(!exit_mgr.check_settlement_logic(&position, &market, current_price));
+    }
+
+    #[test]
+    fn test_settlement_logic_exactly_0_minutes() {
+        // Exactly at settlement time (boundary - should NOT apply)
+        let mut position = create_test_position(ExitTarget {
+            take_profit_price: Some(dec!(0.75)),
+            stop_loss_price: Some(dec!(0.25)),
+            trailing_stop_distance: None,
+            expiry_time: None,
+        });
+        position.side = PositionSide::Yes;
+        position.entry_price = dec!(0.75);
+        position.current_price = dec!(0.15); // LOSING
+
+        let market = create_test_market(0); // Exactly at settlement
+        let current_price = dec!(0.15);
+
+        let exit_mgr = ExitManager::new();
+
+        // Should NOT apply (logic is: minutes <= 0, so 0 is excluded)
+        assert!(!exit_mgr.check_settlement_logic(&position, &market, current_price));
+    }
+
+    #[test]
+    fn test_settlement_logic_within_window_5_minutes() {
+        // 5 minutes to settlement (well within window)
+        let mut position = create_test_position(ExitTarget {
+            take_profit_price: Some(dec!(0.75)),
+            stop_loss_price: Some(dec!(0.25)),
+            trailing_stop_distance: None,
+            expiry_time: None,
+        });
+        position.side = PositionSide::Yes;
+        position.entry_price = dec!(0.75);
+        position.current_price = dec!(0.15); // LOSING
+
+        let market = create_test_market(5); // 5 minutes to settlement
+        let current_price = dec!(0.15);
+
+        let exit_mgr = ExitManager::new();
+
+        // Should apply (within 0 < minutes < 30 window)
+        assert!(exit_mgr.check_settlement_logic(&position, &market, current_price));
+    }
+
+    #[test]
+    fn test_settlement_logic_29_minutes() {
+        // 29 minutes to settlement (just inside upper boundary)
+        let mut position = create_test_position(ExitTarget {
+            take_profit_price: Some(dec!(0.75)),
+            stop_loss_price: Some(dec!(0.25)),
+            trailing_stop_distance: None,
+            expiry_time: None,
+        });
+        position.side = PositionSide::Yes;
+        position.entry_price = dec!(0.75);
+        position.current_price = dec!(0.15); // LOSING
+
+        let market = create_test_market(29); // 29 minutes to settlement
+        let current_price = dec!(0.15);
+
+        let exit_mgr = ExitManager::new();
+
+        // Should apply (within 0 < minutes <= 30 window)
+        assert!(exit_mgr.check_settlement_logic(&position, &market, current_price));
     }
 }

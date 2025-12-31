@@ -5,9 +5,8 @@
 use calchas::config::AppConfig;
 use calchas::kalshi::client::KalshiClient;
 use calchas::kalshi::types::GetMarketsRequest;
-use calchas::strategy::loader::load_strategy;
-use calchas::strategy::evaluator::evaluate_strategy;
-use calchas::trading::PriceTracker;
+use calchas::strategy::{StrategyLoader, StrategyEvaluator};
+use calchas::trading::{PriceTracker, VolumeTracker, OrderFlowTracker};
 use chrono::Utc;
 
 #[tokio::main]
@@ -25,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = std::sync::Arc::new(KalshiClient::from_config(&config.kalshi)?);
 
     // Load strategy
-    let strategy = load_strategy("strategies/order-flow-imbalance.json")?;
+    let strategy = StrategyLoader::load("strategies/order-flow-imbalance.json")?;
     tracing::info!("Loaded strategy: {}", strategy.name);
     tracing::info!("");
 
@@ -72,62 +71,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Found {} LIVE games (expiring <6h, >30% recent volume)", live_games.len());
     tracing::info!("");
 
-    // Test each LIVE game against strategy filters
+    // Convert to internal Market type
+    let markets: Vec<calchas::models::Market> = live_games
+        .iter()
+        .take(10)
+        .map(|m| m.clone().into())
+        .collect();
+
+    // Initialize trackers
     let mut price_tracker = PriceTracker::new();
+    let mut volume_tracker = VolumeTracker::new();
+    let order_flow_tracker = OrderFlowTracker::new();
 
-    for market in live_games.iter().take(10) {
-        let market_converted: calchas::models::Market = market.clone().into();
-
-        tracing::info!("════════════════════════════════════════════════════════════");
-        tracing::info!("Market: {}", market.ticker);
-        tracing::info!("Event: {}", market.event_ticker);
-        tracing::info!("Title: {}", market.title);
-        tracing::info!("Volume: {} | 24h: {}", market.volume, market.volume_24h);
-        tracing::info!("Price: YES ${:.4} | NO ${:.4}",
-            market_converted.yes_price,
-            market_converted.no_price
-        );
-        tracing::info!("");
-
-        // Simulate price tracking (need at least 2 snapshots for momentum)
+    // Record initial data for all markets
+    for market in &markets {
         price_tracker.record_price(
-            &market_converted.id,
-            market_converted.yes_price,
-            market_converted.no_price
+            &market.id,
+            market.yes_price,
+            market.no_price
         );
+        volume_tracker.record_volume(&market.id, market.volume);
+    }
 
-        // Wait a bit and record again to simulate time passing
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    // Evaluate all LIVE markets
+    tracing::info!("═══════════════════════════════════════════════════════════");
+    tracing::info!("Evaluating {} LIVE games against strategy filters", markets.len());
+    tracing::info!("═══════════════════════════════════════════════════════════");
+    tracing::info!("");
 
-        price_tracker.record_price(
-            &market_converted.id,
-            market_converted.yes_price,
-            market_converted.no_price
-        );
+    match StrategyEvaluator::evaluate(
+        &markets,
+        &strategy,
+        Some(&price_tracker),
+        Some(&volume_tracker),
+        Some(&order_flow_tracker),
+    ) {
+        Ok(signals) => {
+            tracing::info!("✅ Generated {} signals from {} LIVE games", signals.len(), markets.len());
+            tracing::info!("");
 
-        // Evaluate against strategy
-        let result = evaluate_strategy(
-            &strategy,
-            &market_converted,
-            &price_tracker,
-            &client
-        ).await;
-
-        match result {
-            Ok(Some(signal)) => {
-                tracing::info!("✅ PASSES FILTERS!");
-                tracing::info!("   Signal: {:?}", signal.direction);
-                tracing::info!("   Confidence: {:.2}", signal.confidence);
+            for signal in &signals {
+                let market = markets.iter().find(|m| m.id == signal.market_id).unwrap();
+                tracing::info!("Signal: {}", market.ticker);
+                tracing::info!("  Side: {:?}", signal.side);
+                tracing::info!("  Price: YES ${:.4} | NO ${:.4}", market.yes_price, market.no_price);
+                tracing::info!("  Volume: {} | 24h: {}", market.volume, market.volume_24h);
+                tracing::info!("");
             }
-            Ok(None) => {
-                tracing::info!("❌ REJECTED - Strategy returned None (filters failed)");
-                tracing::info!("   Check: momentum, OFI, volume, price range");
-            }
-            Err(e) => {
-                tracing::info!("❌ ERROR: {}", e);
+
+            // Show rejected markets
+            let signal_market_ids: std::collections::HashSet<_> = signals.iter().map(|s| &s.market_id).collect();
+            let rejected_markets: Vec<_> = markets.iter()
+                .filter(|m| !signal_market_ids.contains(&m.id))
+                .collect();
+
+            if !rejected_markets.is_empty() {
+                tracing::info!("❌ Rejected {} LIVE games (failed filters)", rejected_markets.len());
+                for market in rejected_markets.iter().take(5) {
+                    tracing::info!("  - {} (${:.4})", market.ticker, market.yes_price);
+                }
             }
         }
-        tracing::info!("");
+        Err(e) => {
+            tracing::error!("❌ Evaluation failed: {:?}", e);
+        }
     }
 
     Ok(())

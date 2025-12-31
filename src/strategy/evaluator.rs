@@ -812,6 +812,7 @@ mod tests {
             no_bid: no_price - dec!(0.01),
             no_ask: no_price + dec!(0.01),
             volume: 1000,
+            volume_24h: 0,
             open_interest: 500,
             event_time: Utc::now() + Duration::hours(24),
             close_time: Utc::now() + Duration::hours(23),
@@ -1190,6 +1191,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1221,6 +1223,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1256,6 +1259,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1284,6 +1288,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1312,6 +1317,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1346,6 +1352,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1374,6 +1381,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1393,6 +1401,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1510,6 +1519,7 @@ mod tests {
             min_volume_spike_pct: None,   // No volume spike filter
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None, // Not checked by basic filters
+            prioritize_live_games: None,
             max_spread_cents: None,         // Not checked by basic filters
             min_best_price_quantity: None,  // Not checked by basic filters
         };
@@ -1542,6 +1552,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1575,6 +1586,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1607,6 +1619,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: None,
+            prioritize_live_games: None,
             max_spread_cents: None,
             min_best_price_quantity: None,
         };
@@ -1640,6 +1653,7 @@ mod tests {
             min_volume_spike_pct: None,
             volume_spike_lookback_minutes: None,
             min_order_flow_imbalance: Some(dec!(0.30)), // OFI filter present but IGNORED
+            prioritize_live_games: None,
             max_spread_cents: Some(dec!(0.05)),         // Spread filter IGNORED
             min_best_price_quantity: Some(200),         // Liquidity filter IGNORED
         };

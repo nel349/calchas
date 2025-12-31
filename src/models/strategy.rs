@@ -114,6 +114,11 @@ pub struct StrategyFilters {
     ///   - 1.0 = 100/0 split (extreme imbalance)
     pub min_order_flow_imbalance: Option<Decimal>,
 
+    /// Enable LIVE game prioritization (evaluate LIVE markets first)
+    /// LIVE = expiring <2h, >30% recent volume ratio, >1000 total volume
+    /// Default: false (backward compatible)
+    pub prioritize_live_games: Option<bool>,
+
     // Orderbook filters (checked before entry execution)
     /// Maximum spread (in cents) to accept
     /// Example: 0.05 = reject if spread > 5 cents
@@ -286,6 +291,7 @@ mod tests {
                 min_volume_spike_pct: None,
                 volume_spike_lookback_minutes: None,
                 min_order_flow_imbalance: None,
+                prioritize_live_games: None,
                 max_spread_cents: None,
                 min_best_price_quantity: None,
             },

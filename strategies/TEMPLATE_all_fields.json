@@ -77,6 +77,13 @@
       "1.0": "Extreme imbalance (100/0 split - one-sided)"
     },
 
+    "prioritize_live_games": false,
+    "_prioritize_live_note": "Enable LIVE game prioritization. If true, markets expiring <2h with >30% recent volume are evaluated FIRST.",
+    "_prioritize_criteria": "LIVE = time_to_event < 2h AND volume_24h/volume > 0.30 AND volume > 1000",
+    "_prioritize_example": "NBA game in 4th quarter (ending in 1h) = LIVE, game starting in 3 hours = non-LIVE",
+    "_prioritize_rationale": "Sports games last 2-3h. If ending in <2h, game is actively being played.",
+    "_prioritize_default": "false (backward compatible - no sorting)",
+
     "max_spread_cents": "0.05",
     "_spread_note": "Maximum bid-ask spread in cents. Example: 0.05 = reject if spread > 5¢. Ensures tight orderbook.",
 

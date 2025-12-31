@@ -7,7 +7,6 @@ use crate::kalshi::{KalshiClient, GetMarketsRequest};
 use crate::models::{Market, ExitReason};
 use crate::strategy::signals::{EntrySignal, SignalSide};
 use crate::trading::{RiskDecision, TradingError, OrderbookProvider};
-use chrono::Utc;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::sync::Arc;
@@ -297,23 +296,85 @@ pub fn evaluate_strategies(
     for strategy in state.strategies.values() {
         tracing::info!("Evaluating strategy: {} against {} markets", strategy.name, markets.len());
 
-        match crate::strategy::evaluator::StrategyEvaluator::evaluate(
-            markets,
-            strategy,
-            Some(&state.price_tracker),
-            Some(&state.volume_tracker),
-            Some(&state.order_flow_tracker),
-        ) {
-            Ok(strategy_signals) => {
-                tracing::info!("  Generated {} signals from {}", strategy_signals.len(), strategy.name);
-                // Attach market data to each signal
-                for signal in strategy_signals {
-                    if let Some(market) = market_map.get(&signal.market_id) {
-                        signal_market_pairs.push((signal, market.clone()));
+        // Check if LIVE game prioritization is enabled
+        let prioritize_live = strategy.filters.prioritize_live_games.unwrap_or(false);
+
+        if prioritize_live {
+            // 2-tier evaluation: LIVE games first, then non-LIVE
+            let (live_markets, non_live_markets): (Vec<_>, Vec<_>) =
+                markets.iter().cloned().partition(|m| m.is_live_game());
+
+            tracing::info!(
+                "  Prioritizing {} LIVE games, {} non-LIVE markets",
+                live_markets.len(),
+                non_live_markets.len()
+            );
+
+            // Evaluate LIVE markets first
+            if !live_markets.is_empty() {
+                match crate::strategy::evaluator::StrategyEvaluator::evaluate(
+                    &live_markets,
+                    strategy,
+                    Some(&state.price_tracker),
+                    Some(&state.volume_tracker),
+                    Some(&state.order_flow_tracker),
+                ) {
+                    Ok(live_signals) => {
+                        tracing::info!("  Generated {} signals from LIVE games", live_signals.len());
+
+                        // Attach market data to live signals
+                        for signal in live_signals {
+                            if let Some(market) = market_map.get(&signal.market_id) {
+                                signal_market_pairs.push((signal, market.clone()));
+                            }
+                        }
                     }
+                    Err(e) => tracing::warn!("Failed to evaluate LIVE markets for strategy {}: {:?}", strategy.id.0, e),
                 }
             }
-            Err(e) => tracing::warn!("Failed to evaluate strategy {}: {:?}", strategy.id.0, e),
+
+            // Evaluate non-LIVE markets (risk manager will handle position limits)
+            if !non_live_markets.is_empty() {
+                match crate::strategy::evaluator::StrategyEvaluator::evaluate(
+                    &non_live_markets,
+                    strategy,
+                    Some(&state.price_tracker),
+                    Some(&state.volume_tracker),
+                    Some(&state.order_flow_tracker),
+                ) {
+                    Ok(non_live_signals) => {
+                        tracing::info!("  Generated {} signals from non-LIVE markets", non_live_signals.len());
+
+                        // Attach market data to non-live signals
+                        for signal in non_live_signals {
+                            if let Some(market) = market_map.get(&signal.market_id) {
+                                signal_market_pairs.push((signal, market.clone()));
+                            }
+                        }
+                    }
+                    Err(e) => tracing::warn!("Failed to evaluate non-LIVE markets for strategy {}: {:?}", strategy.id.0, e),
+                }
+            }
+        } else {
+            // No prioritization - evaluate all markets together (backward compatible)
+            match crate::strategy::evaluator::StrategyEvaluator::evaluate(
+                markets,
+                strategy,
+                Some(&state.price_tracker),
+                Some(&state.volume_tracker),
+                Some(&state.order_flow_tracker),
+            ) {
+                Ok(strategy_signals) => {
+                    tracing::info!("  Generated {} signals from {}", strategy_signals.len(), strategy.name);
+                    // Attach market data to each signal
+                    for signal in strategy_signals {
+                        if let Some(market) = market_map.get(&signal.market_id) {
+                            signal_market_pairs.push((signal, market.clone()));
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!("Failed to evaluate strategy {}: {:?}", strategy.id.0, e),
+            }
         }
     }
 

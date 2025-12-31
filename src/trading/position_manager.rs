@@ -494,6 +494,7 @@ mod tests {
                 min_volume_spike_pct: None,
                 volume_spike_lookback_minutes: None,
                 min_order_flow_imbalance: None,
+                prioritize_live_games: None,
                 max_spread_cents: None,
                 min_best_price_quantity: None,
             },

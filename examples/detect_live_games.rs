@@ -21,8 +21,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AppConfig::load_with_env_default()?;
     let client = std::sync::Arc::new(KalshiClient::from_config(&config.kalshi)?);
 
-    // Fetch sports markets
-    let sports_series = vec!["KXNFLGAME", "KXNBAGAME", "KXNHLGAME", "KXNCAAFGAME", "KXNCAABGAME"];
+    // Fetch ALL sports markets - comprehensive list
+    let sports_series = vec![
+        // US Sports
+        "KXNFLGAME",     // NFL
+        "KXNBAGAME",     // NBA (M)
+        "KXWNBAGAME",    // WNBA (W)
+        "KXNHLGAME",     // NHL
+        "KXMLBGAME",     // MLB
+        "KXNCAAFGAME",   // College Football (M)
+        "KXNCAABGAME",   // College Basketball (M)
+        "KXWCAABGAME",   // Women's College Basketball
+
+        // International Soccer
+        "KXEPLGAME",         // English Premier League
+        "KXLALIGAGAME",      // Spanish La Liga
+        "KXSAUDIPLGAME",     // Saudi Pro League
+        "KXBUNDESLIGATOP4",  // Bundesliga (Top 4 predictions)
+    ];
 
     tracing::info!("Fetching sports markets...");
     let mut all_markets = Vec::new();
@@ -65,13 +81,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             0.0
         };
 
-        // LIVE game heuristics:
-        // 1. Expiring within next 6 hours (game ending soon)
+        // LIVE game heuristics (actively being played RIGHT NOW):
+        // 1. Expiring within next 2 hours (game in final stages)
+        //    Sports games last 2-3h, so if ending in <2h, it's in progress
         // 2. High recent volume (>30% of total in last 24h)
         // 3. Reasonable total volume (>1000)
 
         let is_likely_live =
-            hours_to_exp >= 0 && hours_to_exp <= 6 &&
+            hours_to_exp >= 0 && hours_to_exp <= 2 &&
             vol_ratio > 30.0 &&
             market.volume > 1000;
 
@@ -108,6 +125,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("   🔥 WHY LIVE: Expiring soon + {:.0}% of volume in last 24h",
             vol_ratio
         );
+        tracing::info!("");
+        tracing::info!("   ✅ VALIDATION DATA (verify against Kalshi UI):");
+        tracing::info!("      expected_expiration_time: {:?}", market.expected_expiration_time);
+        tracing::info!("      close_time: {}", market.close_time);
+        tracing::info!("      volume: {}", market.volume);
+        tracing::info!("      volume_24h: {} ({} sentinel?)", market.volume_24h, if market.volume_24h == -1 { "YES" } else { "NO" });
+        tracing::info!("      status: {}", market.status);
     }
 
     // Display upcoming scheduled games
@@ -131,8 +155,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("");
     tracing::info!("═══════════════════════════════════════════════════════════════");
     tracing::info!("DETECTION CRITERIA:");
-    tracing::info!("  LIVE = Expires in <6h + >30% volume in 24h + >1000 total volume");
-    tracing::info!("  These are games likely happening RIGHT NOW or just finished");
+    tracing::info!("  LIVE = Expires in <2h + >30% volume in 24h + >1000 total volume");
+    tracing::info!("  Rationale: Sports games last 2-3h. If ending in <2h, game is in progress.");
+    tracing::info!("  These are games being played RIGHT NOW (quarters/periods active)");
     tracing::info!("═══════════════════════════════════════════════════════════════");
 
     Ok(())

@@ -80,6 +80,7 @@ pub struct Market {
 
     // Liquidity
     pub volume: u64,         // Total contracts traded
+    pub volume_24h: u64,     // 24-hour volume (for LIVE detection)
     pub open_interest: u64,  // Outstanding contracts
 
     // Timing
@@ -125,6 +126,51 @@ impl Market {
     /// for time-based filtering.
     pub fn is_crypto_market(&self) -> bool {
         self.event_ticker.starts_with("KXBTC") || self.event_ticker.starts_with("KXETH")
+    }
+
+    /// Determine if this market is a LIVE game (high-urgency entry opportunity).
+    ///
+    /// LIVE criteria (ALL must be met):
+    /// - Time to event < 2 hours (uses close_time for crypto, event_time for sports)
+    /// - Recent volume ratio > 30% (volume_24h / volume > 0.30)
+    /// - Total volume > 1000 contracts
+    ///
+    /// Rationale: Sports games last 2-3h. If ending in <2h, game is actively being played.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// // See unit tests for full examples
+    /// // A LIVE game has: time < 2h, volume_24h/volume > 30%, volume > 1000
+    /// ```
+    pub fn is_live_game(&self) -> bool {
+        use chrono::Utc;
+
+        // 1. Time to event check (<2 hours = 120 minutes)
+        let now = Utc::now();
+        let time_to_event = if self.is_crypto_market() {
+            self.close_time.signed_duration_since(now)
+        } else {
+            self.event_time.signed_duration_since(now)
+        };
+        let minutes_to_event = time_to_event.num_minutes();
+
+        if minutes_to_event < 0 || minutes_to_event >= 120 {
+            return false;
+        }
+
+        // 2. Total volume check (>1000 contracts)
+        if self.volume <= 1000 {
+            return false;
+        }
+
+        // 3. Recent volume ratio check (>30%)
+        if self.volume == 0 {
+            return false;  // Avoid division by zero
+        }
+
+        let recent_volume_ratio = self.volume_24h as f64 / self.volume as f64;
+        recent_volume_ratio > 0.30
     }
 }
 
@@ -252,6 +298,7 @@ mod tests {
             no_bid: dec!(0.75),
             no_ask: dec!(0.77),
             volume: 5000,
+            volume_24h: 0,
             open_interest: 2000,
             event_time: Utc::now(),
             close_time: Utc::now(),
@@ -304,6 +351,130 @@ mod tests {
     fn test_expensive_side_price() {
         let market = create_test_market();
         assert_eq!(market.expensive_side_price(), dec!(0.76));
+    }
+
+    #[test]
+    fn test_is_live_game_all_criteria_met() {
+        use chrono::Duration;
+
+        let mut market = create_test_market();
+        market.volume = 5000;
+        market.volume_24h = 2000;  // 40% ratio (above 30% threshold)
+        market.event_time = Utc::now() + Duration::hours(1);  // 1 hour (within 2h window)
+
+        assert!(market.is_live_game(), "Should be LIVE: all criteria met");
+    }
+
+    #[test]
+    fn test_is_live_game_time_too_far() {
+        use chrono::Duration;
+
+        let mut market = create_test_market();
+        market.volume = 5000;
+        market.volume_24h = 2000;  // 40% ratio
+        market.event_time = Utc::now() + Duration::hours(3);  // 3 hours (beyond 2h window)
+
+        assert!(!market.is_live_game(), "Should fail: time > 2 hours");
+    }
+
+    #[test]
+    fn test_is_live_game_time_boundary() {
+        use chrono::Duration;
+
+        let mut market = create_test_market();
+        market.volume = 5000;
+        market.volume_24h = 2000;  // 40% ratio
+        market.event_time = Utc::now() + Duration::minutes(121);  // Just over 2 hours
+
+        assert!(!market.is_live_game(), "Should fail: time > 2 hours (boundary)");
+    }
+
+    #[test]
+    fn test_is_live_game_negative_time() {
+        use chrono::Duration;
+
+        let mut market = create_test_market();
+        market.volume = 5000;
+        market.volume_24h = 2000;  // 40% ratio
+        market.event_time = Utc::now() - Duration::hours(1);  // Past event
+
+        assert!(!market.is_live_game(), "Should fail: event already passed");
+    }
+
+    #[test]
+    fn test_is_live_game_volume_too_low() {
+        use chrono::Duration;
+
+        let mut market = create_test_market();
+        market.volume = 1000;  // Exactly 1000 (boundary)
+        market.volume_24h = 500;  // 50% ratio
+        market.event_time = Utc::now() + Duration::hours(1);
+
+        assert!(!market.is_live_game(), "Should fail: volume <= 1000");
+    }
+
+    #[test]
+    fn test_is_live_game_volume_ratio_too_low() {
+        use chrono::Duration;
+
+        let mut market = create_test_market();
+        market.volume = 5000;
+        market.volume_24h = 1000;  // 20% ratio (below 30% threshold)
+        market.event_time = Utc::now() + Duration::hours(1);
+
+        assert!(!market.is_live_game(), "Should fail: volume ratio < 30%");
+    }
+
+    #[test]
+    fn test_is_live_game_volume_ratio_boundary() {
+        use chrono::Duration;
+
+        let mut market = create_test_market();
+        market.volume = 10000;
+        market.volume_24h = 3000;  // Exactly 30% (boundary)
+        market.event_time = Utc::now() + Duration::hours(1);
+
+        assert!(!market.is_live_game(), "Should fail: volume ratio = 30% (needs > 30%)");
+    }
+
+    #[test]
+    fn test_is_live_game_zero_volume() {
+        use chrono::Duration;
+
+        let mut market = create_test_market();
+        market.volume = 0;
+        market.volume_24h = 0;
+        market.event_time = Utc::now() + Duration::hours(1);
+
+        assert!(!market.is_live_game(), "Should fail: zero volume (division by zero safety)");
+    }
+
+    #[test]
+    fn test_is_live_game_crypto_market_uses_close_time() {
+        use chrono::Duration;
+
+        let mut market = create_test_market();
+        market.event_ticker = "KXBTC15M".to_string();  // Crypto market
+        market.volume = 5000;
+        market.volume_24h = 2000;  // 40% ratio
+        market.close_time = Utc::now() + Duration::hours(1);  // Close time within window
+        market.event_time = Utc::now() + Duration::days(14);  // Event time far away
+
+        assert!(market.is_live_game(), "Should be LIVE: crypto uses close_time");
+    }
+
+    #[test]
+    fn test_is_live_game_sports_market_uses_event_time() {
+        use chrono::Duration;
+
+        let mut market = create_test_market();
+        market.event_ticker = "KXNBAGAME-25DEC30".to_string();  // Sports market
+        market.volume = 5000;
+        market.volume_24h = 2000;  // 40% ratio
+        market.event_time = Utc::now() + Duration::hours(1);  // Event time within window
+        market.close_time = Utc::now() + Duration::days(14);  // Close time is placeholder
+
+        assert!(market.is_live_game(), "Should be LIVE: sports uses event_time");
     }
 
     #[test]

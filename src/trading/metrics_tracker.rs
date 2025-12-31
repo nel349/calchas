@@ -48,7 +48,7 @@ use std::collections::HashMap;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 
-use crate::models::Trade;
+use crate::models::{Trade, ExitReason};
 
 // =============================================================================
 // DATA TYPES
@@ -165,6 +165,18 @@ pub enum ExitToLiveDecision {
 // METRICS TRACKER
 // =============================================================================
 
+/// Exit reason summary (in-memory tracking)
+#[derive(Debug, Clone, Default)]
+pub struct ExitReasonSummary {
+    pub take_profit: u32,
+    pub stop_loss: u32,
+    pub trailing_stop: u32,
+    pub max_hold: u32,
+    pub market_closed: u32,
+    pub manual_exit: u32,
+    pub strategy_disabled: u32,
+}
+
 /// Tracks performance metrics for exit-to-live validation
 ///
 /// Records all trades, aggregates daily performance, and validates
@@ -175,6 +187,9 @@ pub struct MetricsTracker {
 
     /// Starting capital for percentage calculations
     starting_capital: Decimal,
+
+    /// Exit reason counts (in-memory only)
+    exit_reasons: ExitReasonSummary,
 }
 
 impl MetricsTracker {
@@ -196,6 +211,7 @@ impl MetricsTracker {
         MetricsTracker {
             daily_records: HashMap::new(),
             starting_capital,
+            exit_reasons: ExitReasonSummary::default(),
         }
     }
 
@@ -226,6 +242,17 @@ impl MetricsTracker {
             .or_insert_with(|| DailyRecord::new(date));
 
         record.add_trade(trade);
+
+        // Track exit reason
+        match trade.exit_reason {
+            ExitReason::TakeProfit => self.exit_reasons.take_profit += 1,
+            ExitReason::StopLoss => self.exit_reasons.stop_loss += 1,
+            ExitReason::TrailingStop => self.exit_reasons.trailing_stop += 1,
+            ExitReason::MaxHoldTime => self.exit_reasons.max_hold += 1,
+            ExitReason::MarketClosed => self.exit_reasons.market_closed += 1,
+            ExitReason::ManualExit => self.exit_reasons.manual_exit += 1,
+            ExitReason::StrategyDisabled => self.exit_reasons.strategy_disabled += 1,
+        }
     }
 
     /// Calculate aggregated metrics
@@ -399,6 +426,11 @@ impl MetricsTracker {
     /// Get total number of trading days
     pub fn trading_days(&self) -> usize {
         self.daily_records.len()
+    }
+
+    /// Get exit reason summary
+    pub fn get_exit_reason_summary(&self) -> &ExitReasonSummary {
+        &self.exit_reasons
     }
 
     // =========================================================================

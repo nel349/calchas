@@ -78,8 +78,8 @@ pub async fn fetch_all_markets(
 async fn fetch_series_markets(
     kalshi_client: &Arc<KalshiClient>,
     series_ticker: &str,
-    min_close_ts: i64,
-    max_close_ts: i64,
+    _min_close_ts: i64,  // Unused - kept for API compatibility
+    _max_close_ts: i64,  // Unused - kept for API compatibility
 ) -> Result<Vec<Market>, Box<dyn std::error::Error>> {
     let mut all_markets = Vec::new();
     let mut cursor: Option<String> = None;
@@ -92,8 +92,11 @@ async fn fetch_series_markets(
             cursor: cursor.clone(),
             status: Some("open".to_string()),
             series_ticker: if series_ticker.is_empty() { None } else { Some(series_ticker.to_string()) },
-            min_close_ts: Some(min_close_ts),
-            max_close_ts: Some(max_close_ts),
+            // CRITICAL FIX: Remove time filters to catch LIVE sports games
+            // College football/basketball have placeholder close_time in 2026,
+            // but actual expiration tonight. Time filtering happens in strategy filters.
+            min_close_ts: None,
+            max_close_ts: None,
         };
 
         let response = kalshi_client.get_markets(request).await?;
@@ -187,9 +190,9 @@ pub async fn fetch_markets_by_ids(
         let total_in_batch = response.markets.len();
         tracing::debug!("    Page {}: API returned {} markets", page_count + 1, total_in_batch);
 
-        // If API returns 0 markets, stop early
+        // If API returns 0 markets, stop early (expected for some series/status combos)
         if total_in_batch == 0 {
-            tracing::warn!("    API returned 0 markets - time window might be wrong!");
+            tracing::debug!("    API returned 0 markets for series {} (status: {})", series, status_filter);
             break;
         }
 
@@ -723,12 +726,12 @@ pub async fn update_and_check_positions(
         );
 
         // DEBUG: Log ACTUAL exit target values to diagnose SL calculation bug
-        tracing::warn!(
-            "  EXIT TARGET DEBUG: Entry={:.6} | TP={:.6} | SL={:.6}",
-            position.entry_price,
-            position.exit_target.take_profit_price.unwrap_or_default(),
-            position.exit_target.stop_loss_price.unwrap_or_default()
-        );
+        // tracing::warn!(
+        //     "  EXIT TARGET DEBUG: Entry={:.6} | TP={:.6} | SL={:.6}",
+        //     position.entry_price,
+        //     position.exit_target.take_profit_price.unwrap_or_default(),
+        //     position.exit_target.stop_loss_price.unwrap_or_default()
+        // );
 
         // Update position with current price
         let updated_position = {
@@ -949,15 +952,34 @@ pub fn print_status(state: &AppState) {
         .map(|p| p.unrealized_pnl)
         .sum();
 
+    // Calculate net profit (realized + unrealized)
+    let net_profit = metrics.net_pnl + total_unrealized_pnl;
+
     tracing::info!("");
     tracing::info!("═══════════════════════════════════════════════════════════════");
-    tracing::info!("  Positions: {} open | Unrealized P&L: ${:.2} | Trades: {} | Win Rate: {:.1}% | Realized P&L: ${:.2}",
+    tracing::info!("  Positions: {} open | Unrealized: ${:.2} | Realized: ${:.2} | Net Profit: ${:.2}",
         active_positions,
         total_unrealized_pnl,
-        metrics.total_trades,
-        metrics.win_rate,
-        metrics.net_pnl
+        metrics.net_pnl,
+        net_profit
     );
+    tracing::info!("  Trades: {} | Wins: {} | Losses: {} | Win Rate: {:.1}%",
+        metrics.total_trades,
+        metrics.total_wins,
+        metrics.total_losses,
+        metrics.win_rate
+    );
+
+    // Show exit reason breakdown if we have trades
+    if metrics.total_trades > 0 {
+        let exits = state.metrics_tracker.get_exit_reason_summary();
+        tracing::info!("  Exits: TP:{} Settled:{} SL:{} MaxHold:{}",
+            exits.take_profit,
+            exits.market_closed,
+            exits.stop_loss,
+            exits.max_hold
+        );
+    }
 
     // Show arbitrage opportunities count if in arbitrage mode
     if !state.arbitrage_opportunities_found.is_empty() {

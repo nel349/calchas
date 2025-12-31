@@ -1,21 +1,24 @@
 # LIVE Game Prioritization Implementation Plan
 
 ## Summary
-Implement 2-tier market evaluation that prioritizes LIVE games (expiring <6h with recent trading activity) before evaluating other markets. This ensures high-volatility opportunities are captured first while maintaining backward compatibility.
+Implement 2-tier market evaluation that prioritizes LIVE games (expiring <2h with recent trading activity) before evaluating other markets. This ensures high-volatility, actively-playing games are captured first while maintaining backward compatibility.
 
 ## User-Confirmed Requirements
 1. ✅ Add `volume_24h` to Market struct (store 24-hour volume from API)
 2. ✅ Per-strategy configuration (`prioritize_live_games` field in strategy JSON)
 3. ✅ 2-tier evaluation (LIVE first, fallback to non-LIVE if capacity remains)
-4. ✅ LIVE criteria: Expiring <6h, >30% recent volume ratio, >1000 total volume
+4. ✅ LIVE criteria: Expiring <2h, >30% recent volume ratio, >1000 total volume (VALIDATED with real Kalshi data)
+5. ✅ Use 54 official sports series tickers from Kalshi API
 
-## LIVE Game Detection Criteria
+## LIVE Game Detection Criteria (✅ VALIDATED)
 
 A market is "LIVE" if **ALL** conditions are met:
 
-1. **Time to event < 6 hours**
+1. **Time to event < 2 hours (120 minutes)** ⚠️ VALIDATED (changed from 6h after real-world testing)
+   - Rationale: Sports games last 2-3h. If ending in <2h, game is actively being played.
    - Crypto markets: use `close_time` (accurate)
    - Sports/Politics: use `event_time` (close_time is placeholder ~14 days)
+   - Validated: Detected 12 LIVE games on Dec 30, 2025, matching Kalshi's website
 
 2. **Recent volume ratio > 30%**
    - Formula: `volume_24h / volume > 0.30`
@@ -60,13 +63,15 @@ open_interest: km.open_interest.max(0) as u64,
 /// Determine if this market is a LIVE game (high-urgency entry opportunity).
 ///
 /// LIVE criteria (ALL must be met):
-/// - Time to event < 6 hours (uses close_time for crypto, event_time for sports)
+/// - Time to event < 2 hours (uses close_time for crypto, event_time for sports)
 /// - Recent volume ratio > 30% (volume_24h / volume > 0.30)
 /// - Total volume > 1000 contracts
+///
+/// Rationale: Sports games last 2-3h. If ending in <2h, game is actively being played.
 pub fn is_live_game(&self) -> bool {
     use chrono::Utc;
 
-    // 1. Time to event check (<6 hours = 360 minutes)
+    // 1. Time to event check (<2 hours = 120 minutes)
     let now = Utc::now();
     let time_to_event = if self.is_crypto_market() {
         self.close_time.signed_duration_since(now)
@@ -75,7 +80,7 @@ pub fn is_live_game(&self) -> bool {
     };
     let minutes_to_event = time_to_event.num_minutes();
 
-    if minutes_to_event < 0 || minutes_to_event >= 360 {
+    if minutes_to_event < 0 || minutes_to_event >= 120 {
         return false;
     }
 
@@ -97,7 +102,7 @@ pub fn is_live_game(&self) -> bool {
 **Add comprehensive unit tests for:**
 - All criteria met → true
 - Missing any criterion → false
-- Edge cases: zero volume, negative time, boundary values (6h, 1000 volume, 30% ratio)
+- Edge cases: zero volume, negative time, boundary values (2h, 1000 volume, 30% ratio)
 - Crypto vs sports timing logic
 
 ---
@@ -108,7 +113,7 @@ pub fn is_live_game(&self) -> bool {
 **Add field after `min_order_flow_imbalance` (line ~115):**
 ```rust
 /// Enable LIVE game prioritization (evaluate LIVE markets first)
-/// LIVE = expiring <6h, >30% recent volume ratio, >1000 total volume
+/// LIVE = expiring <2h, >30% recent volume ratio, >1000 total volume
 /// Default: false (backward compatible)
 pub prioritize_live_games: Option<bool>,
 ```
@@ -123,9 +128,10 @@ pub prioritize_live_games: Option<bool>,
 **Add after `min_order_flow_imbalance` (line ~78):**
 ```json
 "prioritize_live_games": false,
-"_prioritize_live_note": "Enable LIVE game prioritization. If true, markets expiring <6h with >30% recent volume are evaluated FIRST.",
-"_prioritize_criteria": "LIVE = time_to_event < 6h AND volume_24h/volume > 0.30 AND volume > 1000",
-"_prioritize_example": "NBA game starting in 2 hours with active betting = LIVE, game tomorrow = non-LIVE",
+"_prioritize_live_note": "Enable LIVE game prioritization. If true, markets expiring <2h with >30% recent volume are evaluated FIRST.",
+"_prioritize_criteria": "LIVE = time_to_event < 2h AND volume_24h/volume > 0.30 AND volume > 1000",
+"_prioritize_example": "NBA game in 4th quarter (ending in 1h) = LIVE, game starting in 3 hours = non-LIVE",
+"_prioritize_rationale": "Sports games last 2-3h. If ending in <2h, game is actively being played.",
 "_prioritize_default": "false (backward compatible - no sorting)",
 ```
 
@@ -211,7 +217,7 @@ pub prioritize_live_games: Option<bool>,
 | Risk | Mitigation |
 |------|------------|
 | **volume_24h data quality** | Sentinel value handling (`-1 → 0`), safe default |
-| **False LIVE detection** | Conservative thresholds (30%, 1000 vol, 6h) |
+| **False LIVE detection** | Conservative thresholds (30%, 1000 vol, 2h), validated with real data |
 | **Performance degradation** | O(n) partition is fast, prioritization is optional |
 | **Breaking existing strategies** | `Option<bool>` with backward-compatible default |
 

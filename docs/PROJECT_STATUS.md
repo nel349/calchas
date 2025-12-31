@@ -79,13 +79,18 @@
 | **Volume Tracker (Phase 1)** | ✅ Complete | `src/trading/volume_tracker.rs` | **Volume spike detection for sharp money following (16 tests)** |
 | **Order Flow Tracker (Phase 2)** | ✅ Complete | `src/trading/order_flow_tracker.rs` | **Order flow imbalance (OFI) for HFT-style trading (11 tests)** |
 | **Filter Integration** | ✅ Complete | `src/strategy/evaluator.rs` | **Integrated Phase 1 & 2 filters into main filter pipeline** |
-| **MAIN APP** | ❌ Not Started | `src/main.rs` | **Supervisor + 4 tasks (Section 7.1)** |
-| **Channels** | ❌ Not Started | `src/runtime/channels.rs` | **Broadcast/MPSC setup (Section 7.3)** |
-| **Tasks** | ❌ Not Started | `src/runtime/tasks/` | **4 concurrent tasks (Section 7.2)** |
+| **LIVE Game Prioritization** | ✅ Complete | `src/loop_handlers.rs`, `src/models/market.rs` | **2-tier evaluation: LIVE games first (<2h to event, validated with real data)** |
+| **MAIN APP (Polling-Based)** | ✅ Complete | `src/main.rs` | **Working polling loop (10-sec interval, REST API)** |
 
-**Phase 4 Milestone:** ❌ `cargo run` starts bot, opens position (simulated), hits exit, closes profitably
+**Phase 4 Milestone:** ✅ COMPLETE - `cargo run --mode strategy` opens positions, hits exits, manages risk
 
-**NEXT STEP:** All 10 core trading components complete (119 tests passing). Phase 1 (Volume Spike) & Phase 2 (Order Flow Imbalance) integrated and validated. Now build runtime integration (channels + supervisor + tasks) per Section 7.
+**Note:** WebSocket-based architecture (Channels + Tasks from Section 7) deferred to Phase 6. Current polling loop is sufficient for momentum trading strategies.
+
+**NEXT STEP:** ✅ Phase 4 COMPLETE! Focus on profit optimization (see `docs/PROFIT_OPTIMIZATION_ROADMAP.md`):
+- Phase 0: ✅ IN PROGRESS - Collecting data with 15% SL + 4hr max hold
+- Phase 1: 🎯 NEXT - Settlement-aware exits (cut losers early, hold winners)
+- Phase 2: 📊 Backtest framework (find optimal SL/TP/MaxHold)
+- Phase 3: 💰 Kelly criterion position sizing (maximize growth)
 
 ---
 
@@ -102,16 +107,23 @@
 
 ---
 
-### Phase 6: Real-Time Updates (Weeks 11-12)
-**Goal:** WebSocket integration
+### Phase 6: Real-Time Updates (DEFERRED) - WebSocket Architecture
+**Goal:** Replace polling with WebSocket + concurrent tasks (TECHNICAL_ARCHITECTURE.md Section 7)
+
+**⚠️ DEFERRED:** Current polling loop (10-sec REST) is sufficient for momentum strategies. WebSocket needed for:
+- High-frequency trading (<1 second latency)
+- Real-time arbitrage
+- Live web UI price charts
 
 | Component | Status | Files | Notes |
 |-----------|--------|-------|-------|
-| WebSocket Client | ❌ Not Started | `src/platforms/kalshi/websocket.rs` | - |
-| Event Handler | ❌ Not Started | `src/platforms/kalshi/events.rs` | - |
-| Price Updates | ❌ Not Started | - | - |
+| Channels | ❌ Deferred | `src/runtime/channels.rs` | Broadcast/MPSC for task communication |
+| WebSocket Task | ❌ Deferred | `src/runtime/tasks/websocket_task.rs` | Real-time price feed |
+| Strategy Task | ❌ Deferred | `src/runtime/tasks/strategy_task.rs` | Evaluate on price updates |
+| Position Task | ❌ Deferred | `src/runtime/tasks/position_task.rs` | Monitor exits in real-time |
+| Executor Task | ❌ Deferred | `src/runtime/tasks/executor_task.rs` | Execute orders |
 
-**Phase 6 Milestone:** ❌ Receive real-time price updates via WebSocket
+**Phase 6 Milestone:** ❌ DEFERRED - WebSocket-based concurrent architecture (Section 7.1-7.3)
 
 ---
 
@@ -131,12 +143,13 @@
 
 ## 📊 Overall Progress
 
-**Components Completed:** 35 / 45 (78%)
+**Components Completed:** 37 / 44 (84%)
 **Phase 1 Progress:** 100% (12/12 components) ✅ COMPLETE
 **Phase 2 Progress:** 100% (7/7 components) ✅ COMPLETE
 **Phase 3 Progress:** 100% (6/6 components) ✅ COMPLETE
-**Phase 4 Progress:** 77% (10/13 components) 🚧 IN PROGRESS
-**Estimated Completion:** Week 14
+**Phase 4 Progress:** 100% (12/12 components) ✅ COMPLETE
+**Phase 5-7:** Not started (deferred - focus on profit optimization)
+**Current Focus:** Profit optimization (see PROFIT_OPTIMIZATION_ROADMAP.md)
 
 ---
 
@@ -201,6 +214,8 @@
 - [x] **Volume spike detection (Phase 1)** - Track sudden volume increases for sharp money following (16 tests)
 - [x] **Order flow imbalance (Phase 2)** - Measure buy/sell pressure via orderbook depth (11 tests)
 - [x] **Integrated filter pipeline** - All Phase 1 & Phase 2 filters working in evaluator (8 integration tests)
+- [x] **LIVE game prioritization** - 2-tier evaluation prioritizes actively-playing games (<2h to event, validated with real Kalshi data)
+- [x] **Sports series filtering** - 54 official sports series tickers configured for focused market scanning
 - [x] 119 total Phase 4 unit tests passing (4+14+16+15+7+24+12+16+11)
 
 **Phase 4 - Strategy Features (Partial Implementation):**

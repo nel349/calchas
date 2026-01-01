@@ -56,6 +56,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize application state
     let mut state = AppState::new(config).await?;
 
+    // Recover open positions from database (Phase 5)
+    match state.storage.get_active_positions() {
+        Ok(positions) => {
+            if !positions.is_empty() {
+                tracing::info!("🔄 Recovered {} open positions from database", positions.len());
+                for position in positions {
+                    tracing::info!("   - {} (Market: {}, Entry: ${:.2})",
+                        position.id.0,
+                        position.market_id.0,
+                        position.entry_price
+                    );
+                    state.positions.insert(position.id.clone(), position);
+                }
+            } else {
+                tracing::info!("✓ No positions to recover (starting fresh)");
+            }
+        }
+        Err(e) => {
+            tracing::warn!("⚠️  Failed to recover positions from database: {}", e);
+            tracing::warn!("   Continuing with empty positions (non-fatal)");
+        }
+    }
+
     tracing::info!("Starting trading loop (polling every 10 seconds)...");
     tracing::info!("Press Ctrl+C to stop");
     tracing::info!("");

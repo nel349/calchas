@@ -79,10 +79,9 @@ impl From<ConfigError> for ConfigLoadError {
 // CONFIG STRUCTURES
 // =============================================================================
 
-/// Application configuration (Phase 1-2: basic + Kalshi API)
+/// Application configuration (Phase 1-5)
 ///
 /// This will be extended in later phases to include:
-/// - [database] - SQLite settings (Phase 5)
 /// - [web] - Web server settings (Phase 7)
 /// - [logging] - Log configuration (currently using RUST_LOG env var)
 /// - [risk] - Risk management limits (Phase 4)
@@ -97,6 +96,10 @@ pub struct AppConfig {
     /// Arbitrage configuration
     #[serde(default)]
     pub arbitrage: ArbitrageConfig,
+
+    /// Database configuration (Phase 5)
+    #[serde(default)]
+    pub database: DatabaseConfig,
 }
 
 /// Runtime configuration
@@ -248,6 +251,27 @@ impl Default for ArbitrageConfig {
             min_hours_to_settlement: default_min_hours_to_settlement(),
             max_days_to_settlement: default_max_days_to_settlement(),
             min_quantity: default_min_quantity(),
+        }
+    }
+}
+
+/// Database configuration (Phase 5)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseConfig {
+    /// Path to SQLite database file
+    /// Can be overridden with: CALCHAS__DATABASE__PATH
+    #[serde(default = "default_database_path")]
+    pub path: PathBuf,
+}
+
+fn default_database_path() -> PathBuf {
+    PathBuf::from("data/calchas.db")
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        DatabaseConfig {
+            path: default_database_path(),
         }
     }
 }

@@ -859,6 +859,13 @@ pub async fn update_and_check_positions(
             );
         }
 
+        // Persist position to database FIRST (Phase 5)
+        // Critical: DB must be updated before memory to maintain consistency on crash
+        if let Err(e) = state.storage.save_position(&updated_position) {
+            tracing::error!("Failed to persist position {} to database: {}", position_id.0, e);
+            // Non-fatal - continue (in-memory state still updates)
+        }
+
         // Always update the position in AppState with new price
         state.positions.insert(position_id.clone(), updated_position.clone());
 
@@ -885,8 +892,16 @@ pub async fn update_and_check_positions(
                 // Execute settlement-aware exit
                 match execute_exit(state, &position_id, ExitReason::SettlementCutLoss).await {
                     Ok(()) => {
-                        // Position closed successfully
+                        // Delete position from database FIRST (Phase 5)
+                        // Critical: DB must be updated before memory to maintain consistency
+                        if let Err(e) = state.storage.delete_position(&position_id) {
+                            tracing::error!("Failed to delete position {} from database: {}", position_id.0, e);
+                            // Non-fatal - still remove from memory (trade already recorded)
+                        }
+
+                        // Position closed successfully - remove from memory
                         state.positions.remove(&position_id);
+
                         continue; // Skip standard exit checks - already exited
                     }
                     Err(e) => {
@@ -909,7 +924,14 @@ pub async fn update_and_check_positions(
                 // Execute exit
                 match execute_exit(state, &position_id, exit_reason).await {
                     Ok(()) => {
-                        // Position closed successfully
+                        // Delete position from database FIRST (Phase 5)
+                        // Critical: DB must be updated before memory to maintain consistency
+                        if let Err(e) = state.storage.delete_position(&position_id) {
+                            tracing::error!("Failed to delete position {} from database: {}", position_id.0, e);
+                            // Non-fatal - still remove from memory (trade already recorded)
+                        }
+
+                        // Position closed successfully - remove from memory
                         state.positions.remove(&position_id);
                     }
                     Err(e) => {
@@ -1015,6 +1037,12 @@ async fn execute_exit(
 
     // Record trade in metrics tracker
     state.metrics_tracker.record_trade(&trade);
+
+    // Persist trade to database (Phase 5)
+    if let Err(e) = state.storage.insert_trade(&trade) {
+        tracing::error!("Failed to persist trade {} to database: {}", trade.id.0, e);
+        // Non-fatal - in-memory metrics still work
+    }
 
     // Debug: Check metrics after recording
     let metrics_after = state.metrics_tracker.calculate_metrics();

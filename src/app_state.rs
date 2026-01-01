@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use crate::config::AppConfig;
 use crate::kalshi::KalshiClient;
 use crate::models::{Position, PositionId, Strategy, StrategyId};
+use crate::storage::{Storage, SqliteStore};
 use crate::strategy::loader::StrategyLoader;
 use crate::strategy::evaluator::StrategyEvaluator;
 use crate::trading::{
@@ -83,6 +84,9 @@ pub struct AppState {
 
     /// Time range configuration for API filtering (calculated from all strategies)
     pub time_range_config: TimeRangeConfig,
+
+    /// Database storage for persistence (Phase 5)
+    pub storage: Arc<dyn Storage>,
 }
 
 impl AppState {
@@ -103,6 +107,10 @@ impl AppState {
             config.kalshi.base_url(),
             config.kalshi.use_demo
         );
+
+        // Initialize database storage (Phase 5)
+        let storage = Arc::new(SqliteStore::new(&config.database.path)?) as Arc<dyn Storage>;
+        tracing::info!("✓ Database initialized at: {}", config.database.path.display());
 
         // Initialize Kalshi client
         let kalshi_client = Arc::new(KalshiClient::from_config(&config.kalshi)?);
@@ -185,6 +193,7 @@ impl AppState {
             arbitrage_opportunities_found: Vec::new(),
             starting_capital,
             time_range_config,
+            storage,
         })
     }
 

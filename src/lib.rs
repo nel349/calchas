@@ -9,3 +9,4 @@ pub mod trading;
 pub mod arbitrage;
 pub mod app_state;
 pub mod loop_handlers;
+pub mod storage;

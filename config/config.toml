@@ -57,10 +57,9 @@ private_key = ""     # Set via CALCHAS__KALSHI__PRIVATE_KEY
 # reload_strategies_interval_secs = 60  # Hot reload strategies every 60s
 # position_check_interval_secs = 5      # Check exit conditions every 5s
 
-# Uncomment when implementing database (Phase 5)
-# [database]
-# path = "data/calchas.db"
-# max_connections = 5
+# Phase 5: Database persistence
+[database]
+path = "data/calchas.db"
 
 # Uncomment when implementing web server (Phase 7)
 # [web]

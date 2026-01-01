@@ -42,6 +42,11 @@ pem = "3.0"
 rand = "0.8"
 async-trait = "0.1.89"
 
+# Database persistence (Phase 5)
+rusqlite = { version = "0.31", features = ["bundled"] }
+refinery = { version = "0.8", features = ["rusqlite"] }
+thiserror = "2.0.17"
+
 [dev-dependencies]
 # Temporary files for testing
 tempfile = "3.8"

@@ -12,6 +12,8 @@
     "min_volume": 10000,
     "min_momentum_pct": "1.0",
     "momentum_lookback_minutes": 5,
+    "min_volume_spike_pct": "100.0",
+    "volume_spike_lookback_minutes": 5,
     "min_order_flow_imbalance": "0.55",
     "prioritize_live_games": true
   },

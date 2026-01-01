@@ -159,6 +159,106 @@ impl OrderFlowTracker {
         }
     }
 
+    /// Calculate OFI trend (change in OFI over time)
+    ///
+    /// Detects if order flow pressure is GROWING (momentum building) or FADING (momentum dying).
+    ///
+    /// # Arguments
+    ///
+    /// * `market_id` - The market to check
+    /// * `lookback` - How far back to compare (e.g., Duration::seconds(30))
+    ///
+    /// # Returns
+    ///
+    /// * `Some(Decimal)` - Change in OFI value
+    ///   - **Positive** = OFI is growing (pressure intensifying)
+    ///   - **Negative** = OFI is shrinking (pressure fading)
+    ///   - **Example:** +0.3 means OFI increased from 0.2 to 0.5 in lookback period
+    /// * `None` - Insufficient data (need at least 2 snapshots spanning lookback period)
+    ///
+    /// # Examples
+    ///
+    /// * **OFI: 0.2 → 0.6 in 30 sec** → Trend = +0.4 (strong momentum building) ✅
+    /// * **OFI: 0.6 → 0.6 in 30 sec** → Trend = 0.0 (stale signal) ⚠️
+    /// * **OFI: 0.6 → 0.3 in 30 sec** → Trend = -0.3 (momentum fading) ❌
+    pub fn calculate_ofi_trend(
+        &self,
+        market_id: &MarketId,
+        lookback: Duration,
+    ) -> Option<Decimal> {
+        let snapshots = self.snapshots.get(market_id)?;
+
+        // Need at least 2 snapshots to calculate trend
+        if snapshots.len() < 2 {
+            return None;
+        }
+
+        // Calculate current OFI from most recent snapshot
+        let current_snapshot = &snapshots[0];
+        let current_total = current_snapshot.bid_liquidity + current_snapshot.ask_liquidity;
+        if current_total == 0 {
+            return None;
+        }
+
+        let current_ofi = {
+            let bid_signed = current_snapshot.bid_liquidity as i128;
+            let ask_signed = current_snapshot.ask_liquidity as i128;
+            let total_signed = current_total as i128;
+            let ofi_value = (bid_signed - ask_signed) as f64 / total_signed as f64;
+            Decimal::from_f64_retain(ofi_value)?
+        };
+
+        // Find snapshot from lookback period ago
+        let target_time = current_snapshot.timestamp - lookback;
+        let old_snapshot = snapshots
+            .iter()
+            .find(|s| s.timestamp <= target_time)
+            .or_else(|| snapshots.get(1))?; // Fallback to 2nd newest if no exact match
+
+        // Calculate old OFI
+        let old_total = old_snapshot.bid_liquidity + old_snapshot.ask_liquidity;
+        if old_total == 0 {
+            return None;
+        }
+
+        let old_ofi = {
+            let bid_signed = old_snapshot.bid_liquidity as i128;
+            let ask_signed = old_snapshot.ask_liquidity as i128;
+            let total_signed = old_total as i128;
+            let ofi_value = (bid_signed - ask_signed) as f64 / total_signed as f64;
+            Decimal::from_f64_retain(ofi_value)?
+        };
+
+        // Return change in OFI (positive = growing pressure)
+        Some(current_ofi - old_ofi)
+    }
+
+    /// Check if OFI is trending strongly (momentum is accelerating)
+    ///
+    /// # Arguments
+    ///
+    /// * `market_id` - The market to check
+    /// * `min_trend` - Minimum OFI change required (e.g., 0.2 = OFI must grow by 0.2+ in lookback period)
+    /// * `lookback` - How far back to measure trend
+    ///
+    /// # Returns
+    ///
+    /// `true` if OFI trend (absolute value) >= min_trend, `false` otherwise
+    ///
+    /// **Example:** min_trend = 0.2 means OFI must have changed by at least 0.2 (e.g., 0.3→0.5 or 0.7→0.5)
+    pub fn has_ofi_trend(
+        &self,
+        market_id: &MarketId,
+        min_trend: Decimal,
+        lookback: Duration,
+    ) -> bool {
+        if let Some(trend) = self.calculate_ofi_trend(market_id, lookback) {
+            trend.abs() >= min_trend
+        } else {
+            false
+        }
+    }
+
     /// Remove snapshots older than retention period for a specific market
     fn cleanup_market(&mut self, market_id: &MarketId) {
         if let Some(snapshots) = self.snapshots.get_mut(market_id) {
@@ -405,5 +505,99 @@ mod tests {
         let snapshots = tracker.snapshots.get(&market_id).unwrap();
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].bid_liquidity, 500);
+    }
+
+    #[test]
+    fn test_calculate_ofi_trend_growing() {
+        let mut tracker = OrderFlowTracker::new();
+        let market_id = MarketId::new("TEST-001".to_string());
+
+        let now = Utc::now();
+
+        // Old snapshot: OFI = (200 - 800) / 1000 = -0.6 (bearish)
+        tracker.insert_test_snapshot(&market_id, 200, 800, now - Duration::seconds(30));
+
+        // Current snapshot: OFI = (700 - 300) / 1000 = +0.4 (bullish)
+        tracker.insert_test_snapshot(&market_id, 700, 300, now);
+
+        // Trend: +0.4 - (-0.6) = +1.0 (massive bullish reversal)
+        let trend = tracker.calculate_ofi_trend(&market_id, Duration::seconds(30));
+        assert!(trend.is_some());
+
+        let trend_value = trend.unwrap();
+        assert!(trend_value >= dec!(0.9) && trend_value <= dec!(1.1)); // Allow rounding
+    }
+
+    #[test]
+    fn test_calculate_ofi_trend_fading() {
+        let mut tracker = OrderFlowTracker::new();
+        let market_id = MarketId::new("TEST-001".to_string());
+
+        let now = Utc::now();
+
+        // Old snapshot: OFI = (800 - 200) / 1000 = +0.6 (bullish)
+        tracker.insert_test_snapshot(&market_id, 800, 200, now - Duration::seconds(30));
+
+        // Current snapshot: OFI = (300 - 700) / 1000 = -0.4 (bearish)
+        tracker.insert_test_snapshot(&market_id, 300, 700, now);
+
+        // Trend: -0.4 - (+0.6) = -1.0 (momentum fading/reversing)
+        let trend = tracker.calculate_ofi_trend(&market_id, Duration::seconds(30));
+        assert!(trend.is_some());
+
+        let trend_value = trend.unwrap();
+        assert!(trend_value <= dec!(-0.9) && trend_value >= dec!(-1.1));
+    }
+
+    #[test]
+    fn test_calculate_ofi_trend_stable() {
+        let mut tracker = OrderFlowTracker::new();
+        let market_id = MarketId::new("TEST-001".to_string());
+
+        let now = Utc::now();
+
+        // Old snapshot: OFI = (600 - 400) / 1000 = +0.2
+        tracker.insert_test_snapshot(&market_id, 600, 400, now - Duration::seconds(30));
+
+        // Current snapshot: OFI = (600 - 400) / 1000 = +0.2 (unchanged)
+        tracker.insert_test_snapshot(&market_id, 600, 400, now);
+
+        // Trend: +0.2 - (+0.2) = 0.0 (stale signal)
+        let trend = tracker.calculate_ofi_trend(&market_id, Duration::seconds(30));
+        assert!(trend.is_some());
+
+        let trend_value = trend.unwrap();
+        assert!(trend_value >= dec!(-0.05) && trend_value <= dec!(0.05)); // ~0
+    }
+
+    #[test]
+    fn test_calculate_ofi_trend_insufficient_data() {
+        let mut tracker = OrderFlowTracker::new();
+        let market_id = MarketId::new("TEST-001".to_string());
+
+        // Only 1 snapshot
+        tracker.insert_test_snapshot(&market_id, 500, 500, Utc::now());
+
+        // Should return None (need at least 2 snapshots)
+        let trend = tracker.calculate_ofi_trend(&market_id, Duration::seconds(30));
+        assert!(trend.is_none());
+    }
+
+    #[test]
+    fn test_has_ofi_trend_positive() {
+        let mut tracker = OrderFlowTracker::new();
+        let market_id = MarketId::new("TEST-001".to_string());
+
+        let now = Utc::now();
+
+        // Trend = +0.5 (OFI increased from 0.0 to 0.5)
+        tracker.insert_test_snapshot(&market_id, 500, 500, now - Duration::seconds(30));
+        tracker.insert_test_snapshot(&market_id, 750, 250, now);
+
+        // Should pass with 0.3 threshold (0.5 > 0.3)
+        assert!(tracker.has_ofi_trend(&market_id, dec!(0.3), Duration::seconds(30)));
+
+        // Should fail with 0.6 threshold (0.5 < 0.6)
+        assert!(!tracker.has_ofi_trend(&market_id, dec!(0.6), Duration::seconds(30)));
     }
 }

@@ -47,7 +47,6 @@ pub async fn fetch_all_markets(
     match series_tickers {
         Some(tickers) if !tickers.is_empty() => {
             for ticker in tickers {
-                tracing::info!("📊 Fetching markets from series: {}", ticker);
                 let markets = fetch_series_markets(
                     kalshi_client,
                     &ticker,
@@ -106,7 +105,7 @@ async fn fetch_series_markets(
             .collect();
 
         let batch_size = batch.len();
-        tracing::info!("  Page {}: {} markets", page_count + 1, batch_size);
+        tracing::debug!("  Page {}: {} markets", page_count + 1, batch_size);
         all_markets.extend(batch);
         page_count += 1;
 
@@ -594,6 +593,14 @@ pub async fn process_entry_signal(
 
     // Open position
     let position_id = state.position_manager.open_position(filled_order.clone(), strategy)?;
+
+    // Persist position to database immediately after creation (Phase 5)
+    if let Some(position) = state.position_manager.get_position(&position_id) {
+        if let Err(e) = state.storage.save_position(position) {
+            tracing::error!("Failed to persist new position {} to database: {}", position_id.0, e);
+            // Non-fatal - position is still in memory
+        }
+    }
 
     // Get position for logging
     if let Some(position) = state.position_manager.get_position(&position_id) {

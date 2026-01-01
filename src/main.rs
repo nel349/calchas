@@ -79,6 +79,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Recover historical trades into metrics tracker (Phase 5)
+    let mut total_trades_recovered = 0;
+    for strategy_id in state.strategies.keys() {
+        match state.storage.get_trades(strategy_id, None) {
+            Ok(trades) => {
+                for trade in &trades {
+                    state.metrics_tracker.record_trade(trade);
+                }
+                total_trades_recovered += trades.len();
+            }
+            Err(e) => {
+                tracing::warn!("⚠️  Failed to recover trades for strategy {}: {}", strategy_id.0, e);
+            }
+        }
+    }
+    if total_trades_recovered > 0 {
+        tracing::info!("🔄 Recovered {} historical trades into metrics tracker", total_trades_recovered);
+    } else {
+        tracing::info!("✓ No historical trades to recover (starting fresh)");
+    }
+
     tracing::info!("Starting trading loop (polling every 10 seconds)...");
     tracing::info!("Press Ctrl+C to stop");
     tracing::info!("");

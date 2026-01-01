@@ -1,0 +1,41 @@
+{
+  "id": "football-ofi-scalper",
+  "name": "American Football OFI Scalper (All Leagues)",
+  "description": "All American football (NFL + college). Research: volatile scoring, turnovers swing odds instantly. Same params as hockey.",
+  "version": "1.0.0",
+  "enabled": true,
+
+  "filters": {
+    "series_ticker": ["KXNFLGAME", "KXNCAAFGAME", "KXNCAAFCSGAME", "KXNCAAFD3GAME"],
+    "min_price": "0.05",
+    "max_price": "0.95",
+    "min_volume": 10000,
+    "min_momentum_pct": "1.0",
+    "momentum_lookback_minutes": 5,
+    "min_order_flow_imbalance": "0.50",
+    "prioritize_live_games": true
+  },
+
+  "entry_rules": {
+    "side": "ExpensiveSide",
+    "position_size": 10,
+    "position_size_unit": "Dollars",
+    "order_type": "Limit",
+    "limit_price_offset": "-0.005"
+  },
+
+  "exit_rules": {
+    "take_profit_pct": "10.0",
+    "stop_loss_pct": "5.0",
+    "max_hold_time_minutes": 2,
+    "settlement_aware_exit": true,
+    "exit_order_type": "Market"
+  },
+
+  "risk_limits": {
+    "max_concurrent_positions": 10,
+    "max_daily_loss_usd": "50.00",
+    "max_position_loss_usd": "10.00",
+    "loss_cooldown_minutes": 15
+  }
+}

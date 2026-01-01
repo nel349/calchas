@@ -261,7 +261,7 @@ fn test_volatility_hedge_generates_two_signals() {
 
 #[test]
 fn test_disabled_strategy_returns_error() {
-    let mut strategy = StrategyLoader::load("strategies/underdog_hunter.json")
+    let mut strategy = StrategyLoader::load("tests/fixtures/strategies/underdog_hunter.json")
         .expect("Failed to load strategy");
 
     // Disable the strategy

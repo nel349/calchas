@@ -1,0 +1,41 @@
+{
+  "id": "basketball-ofi-scalper",
+  "name": "Basketball OFI Scalper (All Leagues)",
+  "description": "All basketball. Was 57-62% win rate (LOSING). Using TIGHTER OFI filter (0.45) and smaller size ($3) to filter noise from constant scoring.",
+  "version": "1.0.0",
+  "enabled": true,
+
+  "filters": {
+    "series_ticker": ["KXNBAGAME", "KXWNBAGAME", "KXNCAABGAME", "KXNCAAMBGAME", "KXNCAAWBGAME", "KXCBAGAME", "KXNBLGAME"],
+    "min_price": "0.05",
+    "max_price": "0.95",
+    "min_volume": 10000,
+    "min_momentum_pct": "1.0",
+    "momentum_lookback_minutes": 5,
+    "min_order_flow_imbalance": "0.55",
+    "prioritize_live_games": true
+  },
+
+  "entry_rules": {
+    "side": "ExpensiveSide",
+    "position_size": 3,
+    "position_size_unit": "Dollars",
+    "order_type": "Limit",
+    "limit_price_offset": "-0.005"
+  },
+
+  "exit_rules": {
+    "take_profit_pct": "10.0",
+    "stop_loss_pct": "5.0",
+    "max_hold_time_minutes": 2,
+    "settlement_aware_exit": true,
+    "exit_order_type": "Market"
+  },
+
+  "risk_limits": {
+    "max_concurrent_positions": 15,
+    "max_daily_loss_usd": "50.00",
+    "max_position_loss_usd": "10.00",
+    "loss_cooldown_minutes": 15
+  }
+}

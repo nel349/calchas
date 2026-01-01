@@ -148,6 +148,7 @@ impl StrategyEvaluator {
         Self::validate_strategy(strategy)?;
 
         // Track filter rejections for debugging
+        let mut rejected_series_ticker = 0;
         let mut rejected_category = 0;
         let mut rejected_price = 0;
         let mut rejected_volume = 0;
@@ -169,6 +170,13 @@ impl StrategyEvaluator {
             .iter()
             .filter(|market| {
                 // Check each filter individually for diagnostics
+
+                // Check series_ticker FIRST (most selective filter)
+                if !Self::matches_series_ticker(market, &strategy.filters.series_ticker) {
+                    rejected_series_ticker += 1;
+                    return false;
+                }
+
                 if !Self::matches_category(market, &strategy.filters.categories, &strategy.filters.exclude_categories) {
                     rejected_category += 1;
                     return false;
@@ -262,9 +270,10 @@ impl StrategyEvaluator {
         // Log filter rejection breakdown if no signals generated
         if signals.is_empty() && total_markets > 0 {
             tracing::warn!(
-                "Filter breakdown for {} ({} markets): category={}, price={}, volume={}, open_interest={}, time_window={}, momentum={} (no_data={}, insufficient={}), volume_spike={} (no_data={}, insufficient={}), order_flow={} (no_data={}, insufficient={})",
+                "Filter breakdown for {} ({} markets): series_ticker={}, category={}, price={}, volume={}, open_interest={}, time_window={}, momentum={} (no_data={}, insufficient={}), volume_spike={} (no_data={}, insufficient={}), order_flow={} (no_data={}, insufficient={})",
                 strategy.name,
                 total_markets,
+                rejected_series_ticker,
                 rejected_category,
                 rejected_price,
                 rejected_volume,
@@ -343,6 +352,11 @@ impl StrategyEvaluator {
         price_tracker: Option<&PriceTracker>,
         volume_tracker: Option<&crate::trading::VolumeTracker>,
     ) -> bool {
+        // Check series ticker FIRST (most selective filter)
+        if !Self::matches_series_ticker(market, &filters.series_ticker) {
+            return false;
+        }
+
         // Check each basic filter
         if !Self::matches_category(market, &filters.categories, &filters.exclude_categories) {
             return false;
@@ -409,8 +423,9 @@ impl StrategyEvaluator {
         volume_tracker: Option<&crate::trading::VolumeTracker>,
         order_flow_tracker: Option<&crate::trading::OrderFlowTracker>,
     ) -> bool {
-        // Must pass ALL filter checks
-        Self::matches_category(market, &filters.categories, &filters.exclude_categories)
+        // Must pass ALL filter checks (series_ticker first - most selective)
+        Self::matches_series_ticker(market, &filters.series_ticker)
+            && Self::matches_category(market, &filters.categories, &filters.exclude_categories)
             && Self::matches_price(market, filters.min_price, filters.max_price, entry_side)
             && Self::matches_volume(market, filters.min_volume)
             && Self::matches_open_interest(market, filters.min_open_interest)
@@ -441,6 +456,35 @@ impl StrategyEvaluator {
     // =========================================================================
     // FILTER FUNCTIONS (public for debugging)
     // =========================================================================
+
+    /// Check if market's series ticker matches the strategy's series filter
+    ///
+    /// Logic:
+    /// - If no series_ticker filter is specified (None): accept all markets
+    /// - If series_ticker filter is specified: market ticker must start with one of the listed series
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// // Strategy filter: series_ticker: ["KXNHLGAME", "KXIIHFGAME"]
+    /// // Market ticker: "KXNHLGAME-25DEC31NJCBJ-CBJ"
+    /// // Result: true (starts with KXNHLGAME)
+    ///
+    /// // Market ticker: "KXNBAGAME-25DEC31WASMIL-WAS"
+    /// // Result: false (doesn't start with any in the list)
+    /// ```
+    pub fn matches_series_ticker(
+        market: &Market,
+        series_ticker: &Option<Vec<String>>,
+    ) -> bool {
+        match series_ticker {
+            None => true, // No filter specified - accept all
+            Some(series_list) => {
+                // Check if market ticker starts with any of the specified series
+                series_list.iter().any(|series| market.ticker.starts_with(series))
+            }
+        }
+    }
 
     /// Check if market's category matches include/exclude filters
     ///
@@ -1107,6 +1151,79 @@ mod tests {
         let market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
 
         assert!(StrategyEvaluator::matches_open_interest(&market, None));
+    }
+
+    // =========================================================================
+    // SERIES TICKER FILTER TESTS (CRITICAL - prevents wrong-sport trading)
+    // =========================================================================
+
+    #[test]
+    fn test_matches_series_ticker_nhl_market_matches_hockey_filter() {
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+        market.ticker = "KXNHLGAME-25DEC31NJCBJ-CBJ".to_string();
+
+        let filter = Some(vec!["KXNHLGAME".to_string(), "KXIIHFGAME".to_string()]);
+
+        assert!(
+            StrategyEvaluator::matches_series_ticker(&market, &filter),
+            "NHL market should match hockey series filter"
+        );
+    }
+
+    #[test]
+    fn test_matches_series_ticker_nba_market_rejects_hockey_filter() {
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+        market.ticker = "KXNBAGAME-25DEC31WASMIL-WAS".to_string();
+
+        let filter = Some(vec!["KXNHLGAME".to_string(), "KXIIHFGAME".to_string()]);
+
+        assert!(
+            !StrategyEvaluator::matches_series_ticker(&market, &filter),
+            "NBA market should NOT match hockey series filter (THIS TEST WOULD HAVE CAUGHT THE BUG)"
+        );
+    }
+
+    #[test]
+    fn test_matches_series_ticker_soccer_market_matches_any_soccer_league() {
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+        market.ticker = "KXLALIGAGAME-26JAN03REALMAD-REAL".to_string();
+
+        let filter = Some(vec![
+            "KXEPLGAME".to_string(),
+            "KXLALIGAGAME".to_string(),
+            "KXBUNDESLIGAGAME".to_string(),
+        ]);
+
+        assert!(
+            StrategyEvaluator::matches_series_ticker(&market, &filter),
+            "La Liga market should match soccer filter containing La Liga"
+        );
+    }
+
+    #[test]
+    fn test_matches_series_ticker_no_filter_accepts_all() {
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+        market.ticker = "KXANYTHING-ANYTHING".to_string();
+
+        let filter = None;
+
+        assert!(
+            StrategyEvaluator::matches_series_ticker(&market, &filter),
+            "No series filter should accept all markets"
+        );
+    }
+
+    #[test]
+    fn test_matches_series_ticker_empty_list_rejects_all() {
+        let mut market = create_test_market(MarketCategory::Sports, dec!(0.50), dec!(0.50));
+        market.ticker = "KXNHLGAME-25DEC31NJCBJ-CBJ".to_string();
+
+        let filter = Some(vec![]);
+
+        assert!(
+            !StrategyEvaluator::matches_series_ticker(&market, &filter),
+            "Empty series filter list should reject all markets"
+        );
     }
 
     // =========================================================================

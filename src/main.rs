@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         position.market_id.0,
                         position.entry_price
                     );
-                    state.positions.insert(position.id.clone(), position);
+                    state.position_manager.insert_position_for_recovery(position);
                 }
             } else {
                 tracing::info!("✓ No positions to recover (starting fresh)");
@@ -155,10 +155,11 @@ async fn run_arbitrage_mode(state: &mut AppState) -> Result<(), Box<dyn std::err
                 }
 
                 // Also check existing positions (if any from previous runs)
-                if !state.positions.is_empty() {
-                    tracing::info!("Checking {} existing positions", state.positions.len());
+                if state.position_manager.active_position_count() > 0 {
+                    tracing::info!("Checking {} existing positions", state.position_manager.active_position_count());
 
-                    let market_ids: Vec<_> = state.positions.values()
+                    let market_ids: Vec<_> = state.position_manager.get_active_positions()
+                        .iter()
                         .map(|p| p.market_id.clone())
                         .collect();
 
@@ -218,7 +219,7 @@ async fn run_strategy_mode(state: &mut AppState) -> Result<(), Box<dyn std::erro
                     .max()
                     .unwrap_or(5);
 
-                let current_positions = state.positions.len();
+                let current_positions = state.position_manager.active_position_count();
                 let has_capacity = current_positions < max_concurrent;
 
                 // 1. Fetch markets based on capacity
@@ -226,10 +227,20 @@ async fn run_strategy_mode(state: &mut AppState) -> Result<(), Box<dyn std::erro
                     // We have capacity - scan ALL markets for new opportunities
                     tracing::info!("Position capacity: {}/{} - Scanning for entries", current_positions, max_concurrent);
 
-                    // Extract series_tickers from first enabled strategy (if any)
-                    let series_tickers = state.strategies.values()
-                        .next()
-                        .and_then(|s| s.filters.series_ticker.clone());
+                    // Collect ALL series_tickers from ALL enabled strategies (deduplicated)
+                    let series_tickers: Option<Vec<String>> = {
+                        let all_tickers: std::collections::HashSet<String> = state.strategies.values()
+                            .filter_map(|s| s.filters.series_ticker.as_ref())
+                            .flatten()
+                            .cloned()
+                            .collect();
+
+                        if all_tickers.is_empty() {
+                            None  // No series filter - fetch all markets
+                        } else {
+                            Some(all_tickers.into_iter().collect())
+                        }
+                    };
 
                     match fetch_all_markets(
                         &state.kalshi_client,
@@ -334,7 +345,8 @@ async fn run_strategy_mode(state: &mut AppState) -> Result<(), Box<dyn std::erro
                 } else {
                     // At max capacity - only fetch markets for existing positions
                     tracing::info!("Position capacity: {}/{} (FULL) - Updating positions only", current_positions, max_concurrent);
-                    let market_ids: Vec<_> = state.positions.values()
+                    let market_ids: Vec<_> = state.position_manager.get_active_positions()
+                        .iter()
                         .map(|p| p.market_id.clone())
                         .collect();
 
@@ -372,7 +384,7 @@ async fn run_strategy_mode(state: &mut AppState) -> Result<(), Box<dyn std::erro
                 }
 
                 // 4. Update position prices and check exits (ALWAYS)
-                if !state.positions.is_empty() {
+                if state.position_manager.active_position_count() > 0 {
                     if let Err(e) = update_and_check_positions(state, &all_markets).await {
                         tracing::error!("Failed to update positions: {}", e);
                     }

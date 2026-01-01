@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crate::config::AppConfig;
 use crate::kalshi::KalshiClient;
-use crate::models::{Position, PositionId, Strategy, StrategyId};
+use crate::models::{Strategy, StrategyId};
 use crate::storage::{Storage, SqliteStore};
 use crate::strategy::loader::StrategyLoader;
 use crate::strategy::evaluator::StrategyEvaluator;
@@ -42,9 +42,6 @@ pub struct AppState {
 
     /// Strategy evaluator for matching markets to strategies
     pub strategy_evaluator: StrategyEvaluator,
-
-    /// Open positions being tracked
-    pub positions: HashMap<PositionId, Position>,
 
     /// Risk manager for enforcing position limits and loss thresholds
     pub risk_manager: RiskManager,
@@ -179,7 +176,6 @@ impl AppState {
             kalshi_client,
             strategies,
             strategy_evaluator,
-            positions: HashMap::new(),
             risk_manager,
             exit_manager,
             order_executor: order_executor_arc,

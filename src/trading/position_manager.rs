@@ -308,6 +308,9 @@ impl PositionManager {
             exit_reason,
         );
 
+        // Remove closed position from HashMap (prevent memory leak)
+        self.positions.remove(position_id);
+
         Ok(trade)
     }
 
@@ -342,6 +345,27 @@ impl PositionManager {
     /// Get count of active positions
     pub fn active_position_count(&self) -> usize {
         self.get_active_positions().len()
+    }
+
+    /// Get all position IDs (for iteration)
+    pub fn get_position_ids(&self) -> Vec<PositionId> {
+        self.positions.keys().cloned().collect()
+    }
+
+    /// Remove a position from manager (for special cases like manual exits)
+    ///
+    /// This is used when a position is manually closed outside the normal flow.
+    pub fn remove_position(&mut self, position_id: &PositionId) {
+        self.positions.remove(position_id);
+    }
+
+    /// Insert position directly (for database recovery and tests)
+    ///
+    /// This bypasses the normal open_position flow and is used for:
+    /// - Recovering positions from database on startup
+    /// - Testing risk manager and other components
+    pub fn insert_position_for_recovery(&mut self, position: Position) {
+        self.positions.insert(position.id.clone(), position);
     }
 
     // =========================================================================

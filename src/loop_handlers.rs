@@ -496,7 +496,7 @@ pub async fn process_entry_signal(
     }
 
     // Risk check
-    let risk_decision = state.risk_manager.check_entry(&signal, &state.positions, strategy);
+    let risk_decision = state.risk_manager.check_entry(&signal, &state.position_manager, strategy);
     match risk_decision {
         RiskDecision::Approved => {
             tracing::info!(
@@ -595,10 +595,8 @@ pub async fn process_entry_signal(
     // Open position
     let position_id = state.position_manager.open_position(filled_order.clone(), strategy)?;
 
-    // Store position in AppState
+    // Get position for logging
     if let Some(position) = state.position_manager.get_position(&position_id) {
-        state.positions.insert(position_id.clone(), position.clone());
-
         let side_str = match position.side {
             crate::models::PositionSide::Yes => "YES",
             crate::models::PositionSide::No => "NO",
@@ -632,13 +630,13 @@ pub async fn update_and_check_positions(
     state: &mut AppState,
     markets: &[Market],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if state.positions.is_empty() {
+    if state.position_manager.active_position_count() == 0 {
         return Ok(());
     }
 
     tracing::info!("");
     tracing::info!("╔═══════════════════════════════════════════════════════════════╗");
-    tracing::info!("║  POSITION UPDATES ({} active)                                   ", state.positions.len());
+    tracing::info!("║  POSITION UPDATES ({} active)                                   ", state.position_manager.active_position_count());
     tracing::info!("╚═══════════════════════════════════════════════════════════════╝");
 
     // Build market lookup map for efficient price updates
@@ -653,11 +651,11 @@ pub async fn update_and_check_positions(
     );
 
     // Get positions to check (need to collect to avoid borrow issues)
-    let position_ids: Vec<_> = state.positions.keys().cloned().collect();
+    let position_ids: Vec<_> = state.position_manager.get_position_ids();
 
     for position_id in position_ids {
         // Get position (safely)
-        let position = match state.positions.get(&position_id) {
+        let position = match state.position_manager.get_position(&position_id) {
             Some(p) => p.clone(),
             None => continue,
         };
@@ -680,9 +678,6 @@ pub async fn update_and_check_positions(
 
                 // For crypto 15-min markets that disappear from API completely,
                 // close at last known price (settlement price unknown)
-
-                // Close the position manually
-                state.positions.remove(&position_id);
 
                 // Create trade record (manually since we can't fetch the market)
                 let trade = crate::models::Trade::new(
@@ -707,6 +702,9 @@ pub async fn update_and_check_positions(
                 );
 
                 state.metrics_tracker.record_trade(&trade);
+
+                // Remove position from manager (manual exit)
+                state.position_manager.remove_position(&position_id);
 
                 continue;
             }
@@ -747,7 +745,13 @@ pub async fn update_and_check_positions(
             // Execute settlement exit
             match execute_exit(state, &position_id, ExitReason::MarketClosed).await {
                 Ok(()) => {
-                    state.positions.remove(&position_id);
+                    // Delete position from database FIRST (Phase 5)
+                    if let Err(e) = state.storage.delete_position(&position_id) {
+                        tracing::error!("Failed to delete position {} from database: {}", position_id.0, e);
+                    }
+
+                    // Remove from memory AFTER DB deletion (crash consistency)
+                    state.position_manager.remove_position(&position_id);
                 }
                 Err(e) => {
                     tracing::error!("Failed to settle position {}: {}", position_id.0, e);
@@ -866,10 +870,7 @@ pub async fn update_and_check_positions(
             // Non-fatal - continue (in-memory state still updates)
         }
 
-        // Always update the position in AppState with new price
-        state.positions.insert(position_id.clone(), updated_position.clone());
-
-        // Also update in PositionManager (it has its own HashMap)
+        // Update position in PositionManager with new price
         if let Some(pm_position) = state.position_manager.get_position_mut(&position_id) {
             pm_position.update_price(updated_position.current_price);
         }
@@ -893,14 +894,14 @@ pub async fn update_and_check_positions(
                 match execute_exit(state, &position_id, ExitReason::SettlementCutLoss).await {
                     Ok(()) => {
                         // Delete position from database FIRST (Phase 5)
-                        // Critical: DB must be updated before memory to maintain consistency
+                        // Critical: DB must be updated before memory to maintain crash consistency
                         if let Err(e) = state.storage.delete_position(&position_id) {
                             tracing::error!("Failed to delete position {} from database: {}", position_id.0, e);
                             // Non-fatal - still remove from memory (trade already recorded)
                         }
 
-                        // Position closed successfully - remove from memory
-                        state.positions.remove(&position_id);
+                        // Remove from memory AFTER DB deletion (crash consistency)
+                        state.position_manager.remove_position(&position_id);
 
                         continue; // Skip standard exit checks - already exited
                     }
@@ -925,14 +926,14 @@ pub async fn update_and_check_positions(
                 match execute_exit(state, &position_id, exit_reason).await {
                     Ok(()) => {
                         // Delete position from database FIRST (Phase 5)
-                        // Critical: DB must be updated before memory to maintain consistency
+                        // Critical: DB must be updated before memory to maintain crash consistency
                         if let Err(e) = state.storage.delete_position(&position_id) {
                             tracing::error!("Failed to delete position {} from database: {}", position_id.0, e);
                             // Non-fatal - still remove from memory (trade already recorded)
                         }
 
-                        // Position closed successfully - remove from memory
-                        state.positions.remove(&position_id);
+                        // Remove from memory AFTER DB deletion (crash consistency)
+                        state.position_manager.remove_position(&position_id);
                     }
                     Err(e) => {
                         tracing::error!("Failed to execute exit for {}: {}", position_id.0, e);
@@ -1052,6 +1053,9 @@ async fn execute_exit(
         metrics_after.net_pnl
     );
 
+    // NOTE: Position removal from PositionManager is done by CALLER after DB deletion
+    // to maintain crash consistency (DB first, then memory)
+
     Ok(())
 }
 
@@ -1061,12 +1065,13 @@ async fn execute_exit(
 ///
 /// * `state` - Application state
 pub fn print_status(state: &AppState) {
-    let active_positions = state.positions.len();
+    let active_positions = state.position_manager.active_position_count();
     let metrics = state.metrics_tracker.calculate_metrics();
 
     // Calculate total unrealized P&L from open positions
     use rust_decimal::Decimal;
-    let total_unrealized_pnl: Decimal = state.positions.values()
+    let total_unrealized_pnl: Decimal = state.position_manager.get_active_positions()
+        .iter()
         .map(|p| p.unrealized_pnl)
         .sum();
 
